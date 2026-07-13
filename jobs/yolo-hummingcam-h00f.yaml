@@ -1,0 +1,72 @@
+# ──────────────────────────────────────────────────────────────
+# YOLO Object Counter — H00F hummingbird cam (WINDOWED continuous)
+#
+# GPU-SHARING MODE. Thor has ONE GPU; two always-on continuous plugins cannot
+# co-run (a held GPU blocks the second pod entirely). So instead of holding the
+# GPU 24/7, this job runs a bounded 10-minute window once an hour: a cron starts
+# it at :00, and the plugin self-exits after --max-runtime 600s, sampling every
+# 15s (~40 frames/window). That frees the GPU for BioCLIP, which runs its own
+# 10-min window at :20. Together they use ~20 min/hour (~1/3 of the GPU).
+#
+# Window layout (with guard-bands so neither can bleed into the other):
+#   :00–:10  YOLO     (this job)
+#   :10–:20  guard
+#   :20–:30  BioCLIP  (jobs/bioclip-hummingcam-h00f.yaml)
+#   :30–:00  guard
+#
+# Mechanism: --continuous Y + --max-runtime 600 makes the plugin behave like one
+# long 10-min single-shot — it loops every --interval seconds, then self-exits
+# at the end of the window (frees GPU). This needs yolo-object-counter >= 0.2.1.
+#
+# CLASS FILTER: count only people, birds, and forks.
+#   • person / bird — the subjects of interest at the feeder.
+#   • fork — a deliberate SENTINEL: a fork cannot appear naturally in this scene,
+#     so a fork detection means a human placed one in-frame to DEMONSTRATE the
+#     trigger end-to-end (unambiguous, unlike a fixed-object false positive).
+#
+# Image: ECR app beckman/yolo-object-counter:0.3.1
+# Camera: Reolink RLC-811A snapshot CGI (creds as query params).
+#
+# Submit (with a write-scoped token):
+#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/yolo-hummingcam-h00f.yaml
+#   sesctl ... submit -j <returned-id>
+#
+# For an always-on (GPU-hogging) variant or a plain one-shot cron, see
+# jobs/yolo-hummingcam-h00f-oneshot.yaml and git history.
+# ──────────────────────────────────────────────────────────────
+name: yolo-hummingcam
+plugins:
+  - name: yolo-object-counter
+    pluginSpec:
+      image: registry.sagecontinuum.org/beckman/yolo-object-counter:0.3.1
+      args:
+        - "--snapshot-url"
+        - "http://10.107.0.221:10000/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snap&user=sage&password=REPLACE_ME&width=640&height=360"
+        - "--model"
+        - "yolo11x.pt"
+        - "--conf-thres"
+        - "0.25"
+        - "--classes"
+        - "person,bird,fork"
+        - "--continuous"
+        - "Y"
+        - "--interval"
+        - "15"
+        - "--max-runtime"
+        - "600"
+        - "--save-match"
+        # Save the annotated frame for ANY of the counted classes at >=0.25
+        # (matches the conf floor — every cycle with a real detection is saved,
+        # same effect as the old --upload-image Y). To save only the interesting
+        # subjects, narrow to e.g. "bird:0.4,fork:0.4".
+        - "*:0.25"
+      selector:
+        resource.gpu: "true"
+nodes:
+  H00F: true
+scienceRules:
+  # Start the 10-min window at the top of every hour (:00). The plugin's
+  # --max-runtime 600 self-exits ~:10, freeing the GPU for the rest of the hour.
+  - "schedule(yolo-object-counter): cronjob('yolo-hummingcam-window', '0 * * * *')"
+successcriteria:
+  - WallClock('30day')

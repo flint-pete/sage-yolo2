@@ -1,0 +1,55 @@
+# ──────────────────────────────────────────────────────────────
+# YOLO Object Counter — H00F cam (ONE-SHOT, scheduler cron */10)
+#
+# ALTERNATE mode. One capture per cron tick (every 10 min here), then the pod
+# exits and frees the GPU until the next tick. This is the lightweight option.
+#
+# ⚠️ NOT suitable for hummingbirds (or any fast/intermittent subject). A
+# hummingbird visits the feeder for a few seconds; sampling once every 10 min
+# almost never coincides with a visit. When the hummingbird cam ran this way,
+# bird detections dropped from ~15/day to ~0. Use the CONTINUOUS job
+# (jobs/yolo-hummingcam-h00f.yaml, --continuous Y --interval 60) for birds.
+#
+# WHEN ONE-SHOT IS THE RIGHT CHOICE:
+#   • Slow-changing scenes: cloud cover, snow depth, parking-lot occupancy,
+#     construction progress, vegetation, water level.
+#   • GPU-shared nodes where holding the GPU 24/7 is undesirable.
+#   • Lower data volume / power budgets.
+#
+# TUNING THE RATE: change the cron expression in scienceRules below.
+#   '*/10 * * * *' = every 10 min   |   '*/5 * * * *' = every 5 min
+#   '*/2 * * * *'  = every 2 min    |   '* * * * *'   = every 1 min (max for cron)
+# Note: each tick reloads the YOLO11x model (~5 GB), so very fast cron rates are
+# wasteful — if you need <2 min sampling, use the CONTINUOUS job instead.
+#
+# Image: ECR app beckman/yolo-object-counter:0.3.1
+# Camera: Reolink RLC-811A snapshot CGI (creds as query params).
+#
+# Submit (with a write-scoped token):
+#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/yolo-hummingcam-h00f-oneshot.yaml
+#   sesctl ... submit -j <returned-id>
+# ──────────────────────────────────────────────────────────────
+name: yolo-hummingcam-oneshot
+plugins:
+  - name: yolo-object-counter
+    pluginSpec:
+      image: registry.sagecontinuum.org/beckman/yolo-object-counter:0.3.1
+      args:
+        - "--snapshot-url"
+        - "http://10.107.0.221:10000/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snap&user=sage&password=REPLACE_ME&width=640&height=360"
+        - "--model"
+        - "yolo11x.pt"
+        - "--conf-thres"
+        - "0.25"
+        - "--continuous"
+        - "N"
+        - "--upload-image"
+        - "Y"
+      selector:
+        resource.gpu: "true"
+nodes:
+  H00F: true
+scienceRules:
+  - "schedule(yolo-object-counter): cronjob('yolo-object-counter', '*/10 * * * *')"
+successcriteria:
+  - WallClock('30day')

@@ -1,0 +1,12 @@
+Getting Started:
+----------------
+Each GitHub Repo submitted to ECR should have the following folder with the resources -
+A) ecr-icon.jpg - An Icon for the project/work 512x512px.
+B) ecr-science-image.jpg - A Science image for the project with a minimum size of 1920x1080px.
+C) ecr-science-description.md - Markdown with description of the science being done here (1 page of text)
+D) ecr-project-url.txt - A URL to a Science page.
+E) ecr-credits-license.txt - A list of Authors, technical collaborators, funding credits, license.
+F) ecr-project-keywords.txt - Keywords / ontology for the work.
+
+NOTE: ecr-icon.jpg and ecr-science-image.jpg must be provided before ECR submission.
+      Placeholder files are not included — create appropriate images for your deployment.

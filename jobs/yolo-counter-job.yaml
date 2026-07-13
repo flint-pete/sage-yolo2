@@ -1,0 +1,30 @@
+# ──────────────────────────────────────────────────────────────
+# YOLO Object Counter — sample job specification
+# Deploy on node W097 (Chicago) counting people and cars
+# ──────────────────────────────────────────────────────────────
+name: yolo-counter-chicago
+plugins:
+  - name: yolo-object-counter
+    pluginSpec:
+      image: registry.sagecontinuum.org/beckman/yolo-object-counter:0.3.1
+      args:
+        - "--stream"
+        - "bottom_camera"
+        - "--model"
+        - "yolo11n.pt"          # lightweight model for demo; change to yolo11x.pt for best accuracy
+        - "--interval"
+        - "30"
+        - "--conf-thres"
+        - "0.25"
+        - "--classes"
+        - "person,car,truck,bus,bicycle"
+        - "--continuous"
+        - "Y"
+        - "--upload-image"
+        - "Y"
+      selector:
+        resource.gpu: "true"
+nodes:
+  W097: true
+scienceRules:
+  - "schedule(yolo-object-counter): cronjob('yolo-object-counter', '*/5 * * * *')"

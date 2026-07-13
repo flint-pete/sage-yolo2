@@ -1,0 +1,4 @@
+authors: Pete Beckman
+collaborators: Sage Team
+funding: NSF 2436842 (Sage Grande: an Open Artficial Intelligence Testbed for Edge Computing and Intelligent Sensing)
+license: BSD 3-clause
