@@ -222,6 +222,61 @@ Net: the published detection record is **frame-anchored** — capture_ts, source
 unique_id, node identity, and acquisition quality all inherited from the producer,
 plus the YOLO counts. That is the payoff of "maximum metadata in the cache."
 
+### 7.1 Metadata authority & reconstruction (decided during Stage-1 implementation)
+
+Reading the producer's actual `metadata.py` surfaced four points that pin down how
+sage-yolo2 must read metadata. These are pre-decided for Stage 2:
+
+1. **Filename `vsn`/`camera` is best-effort; EXIF/JSON is authoritative.** The v2 name
+   `<ts>-v2-<vsn>-<camera>.jpg` is split on the first `-` after the marker, which is
+   only correct when `vsn` has no hyphen. Sage VSNs are hyphenless (`W123`, `H00F`),
+   but `build_v2_name` *permits* hyphens, so the split can be wrong in principle. This
+   is harmless because the **filename is used ONLY for selection ordering** (which
+   needs the capture_ts, and the ts is all-digits so it is never ambiguous). The
+   authoritative `vsn`/`camera` come from the frame's EXIF/UserComment (§7.2), never
+   from the filename split. (Implemented in Stage 1: `parse_v2_name` returns the ts
+   authoritatively and vsn/camera best-effort.)
+
+2. **GPS: UserComment JSON is AUTHORITATIVE; GPS EXIF is the tool-friendly view.**
+   The producer cannot store negative lat/lon in EXIF (piexif raises `struct.error`),
+   so standard GPS EXIF stores `abs(degrees)` as DMS rationals plus a separate
+   `GPSLatitudeRef`/`GPSLongitudeRef` (`S`/`W` ⇒ negative). The UserComment JSON
+   carries `lat`/`lon` as **plain signed decimal floats**. Therefore:
+   - sage-yolo2 reads GPS **from the UserComment JSON** (signed floats, no DMS/ref
+     reconstruction, no hemisphere ambiguity) — this is the authoritative source.
+   - The GPS EXIF tags are provided so the wide ecosystem of **image browsers, photo
+     managers, and mapping tools** (the ones that drop a pin on a map from a photo's
+     EXIF) work out-of-the-box on a bare downloaded JPEG. The EXIF is expected to be
+     correct; the JSON is authoritative for disambiguation.
+   - **Docs obligation:** state this authority split explicitly in the plugin docs
+     (README/overview) so downstream consumers know to trust the JSON `lat`/`lon` as
+     the source of truth and treat GPS EXIF as the convenience/tooling view.
+
+3. **GPS is optional — never fabricate.** The producer writes a GPS block only when
+   both `lat` and `lon` are non-None; a node without a fix yields no GPS EXIF and
+   `lat/lon: null` in the JSON. "Frame has no location" is a first-class case: omit
+   location from the published record entirely — never invent it. (Ties into the §2.2
+   cross-check with `get_node_info()` at Stage 3: frame-GPS and pod-GPS can each be
+   present or absent independently.)
+
+4. **capture_ts disagreement → warn and prefer the filename ts.** The filename prefix
+   and the UserComment `capture_timestamp_ns` are written by the same producer from
+   the same value and should be identical. On the rare mismatch (a corrupted or
+   hand-edited file), **log a warning and prefer the filename ts** — it is the ordering
+   key selection already committed to (§8.5), so preferring it keeps ordering and the
+   published observation_ts consistent. Do not skip the frame on a ts mismatch.
+
+### 7.2 Read order for the authoritative fields
+
+| Field | Authoritative source | EXIF role |
+|---|---|---|
+| capture_ts | filename prefix (warn+prefer on JSON mismatch, §7.1.4) | `DateTimeOriginal` (human view) |
+| unique_id (SHA256) | UserComment JSON `unique_id` = EXIF `ImageUniqueID` (agree by construction) | `ImageUniqueID` |
+| vsn / node_id | UserComment JSON | `Model` (vsn only) |
+| lat / lon | **UserComment JSON (signed floats)** | GPS tags (tool-friendly, abs+ref) |
+| camera | UserComment JSON | — |
+| acquisition_path | UserComment JSON | `Make` encodes path hint |
+
 ---
 
 ## 8. Consumer runtime & batching semantics (the core design)
@@ -442,9 +497,13 @@ image-sampler2 was built. Code lives in `app.py` + new small modules; keep KISS/
   `<ts>-v2-<vsn>-<cam>` names, resolve+assert cache root (reuse image-sampler2
   semantics). Select `newest`. Gate: unit tests over a synthetic cache dir (newest
   pick, ts parse, empty-dir vs absent-root, ignore `*.tmp`).
-- **Stage 2 — frame-anchored metadata (§7).** Read EXIF/UserComment JSON; publish
-  with observation_ts=capture_ts, unique_id, vsn/gps from the frame. Gate: tests
-  asserting the published record inherits frame metadata; mismatch-warning path.
+- **Stage 2 — frame-anchored metadata (§7, §7.1–7.2).** Read EXIF/UserComment JSON;
+  publish with observation_ts=capture_ts, unique_id, vsn/gps from the frame. GPS from
+  the UserComment JSON (signed floats — authoritative), NOT reconstructed from GPS
+  EXIF (abs+ref); GPS optional → omit-never-fabricate; capture_ts JSON-vs-filename
+  mismatch → warn + prefer filename ts. Docs: state the EXIF-is-tool-view /
+  JSON-is-authoritative GPS split. Gate: tests asserting the published record inherits
+  frame metadata; mismatch-warning path; no-GPS path; signed-lat/lon round-trip.
 - **Stage 3 — node identity (§2.2).** Vendor `node_info_env.py` (byte-identical to
   pywaggle2-nodeinfo; note sync); wire `get_node_info()`, cross-check vs frame. Gate:
   identity attribution + never-fabricate-location tests.
