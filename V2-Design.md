@@ -379,6 +379,37 @@ run → process the newest unseen frame → publish → exit," the simplest corr
 consumer, matching §6. The stride/all-unseen machinery is present and tested but not
 the default.
 
+### 8.8 Worked example: two consumers, one cache
+
+Two YOLO instances reading the SAME image-sampler2 stream
+(`/local-cache/hummingcam/top`), doing different jobs at different cadences:
+
+```
+# Count people every 15 minutes
+app.py --from-cache /local-cache/hummingcam/top --consumer-id human \
+       --classes person --batch-interval 15m --select newest
+
+# Count hummingbirds every 2 minutes
+app.py --from-cache /local-cache/hummingcam/top --consumer-id fast-hummers \
+       --classes bird --batch-interval 2m --select newest
+```
+
+Resulting seen-stores (separate → no clobbering):
+```
+/local-cache/.state/sage-yolo2/human/hummingcam/top/seen
+/local-cache/.state/sage-yolo2/fast-hummers/hummingcam/top/seen
+```
+
+The three knobs are independent: `--consumer-id` = *identity* (whose memory),
+`--batch-interval` = *how often it wakes*, `--classes` = *what it computes*. The
+`--consumer-id` is a human-readable name the operator picks — clearer in a cache
+tree / logs than an auto-derived job id, and stable across renames. If omitted, the
+default `<consumer-id>` (job+task) still keeps two separate Sage jobs distinct
+automatically; the explicit name is the recommended override for readability.
+
+To instead run N identical workers that COOPERATIVELY divide one cache (each frame
+processed once), give them a SHARED `--consumer-id` (see §8.6).
+
 ---
 
 ## 9. Staged implementation plan
