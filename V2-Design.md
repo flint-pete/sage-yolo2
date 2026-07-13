@@ -490,6 +490,26 @@ self-documenting, and mutually exclusive by construction. (`cache` is the produc
 default in docs/jobs; `image-dir` for local testing; `stream`/`snapshot` are the
 standalone fallback of §5.1.)
 
+**`cache` vs `image-dir` — the distinction is CONTRACT, not mechanism.** Both read
+JPEGs from a directory, so they look nearly identical. They are opposites:
+
+| | `--source cache` | `--source image-dir` |
+|---|---|---|
+| What it is | consume a producer neighbor's output via the shared WES cache | read an arbitrary local folder of images |
+| Purpose | **production** consumer path (the whole point of v2) | **local test harness** (laptop, no node) |
+| Provenance | frame-anchored: capture_ts, unique_id, VSN, GPS, EXIF/JSON (§7) | none — files carry no metadata; observation ts = `now()` |
+| Lifecycle | live, shared, bounded: producer writes concurrently, Layer-2 evicts, `.tmp` in-flight, newest changes between wakes | static, private fixture: nobody else writes, nothing evicts |
+| Selection/memory | full consumer machinery: seen-store, `--select-every`, `--all-unseen`, wake loop | process the folder once; no seen-store, no batching |
+| Filename shape | requires `<capture_ts_ns>-v2-<vsn>-<camera>.jpg` | any `*.jpg` |
+
+They are kept as **separate sources on purpose** — NOT merged with filename
+auto-detection. Choosing `cache` is a promise "these are real v2 cache frames, give
+me full semantics"; choosing `image-dir` is "these are just test images, don't
+expect provenance." Merging and switching behavior on filename shape would
+reintroduce exactly the silent inference this redesign removed: a user pointing at a
+plain folder would get either parse errors or silently-degraded behavior with no
+signal why. Explicit source = explicit contract.
+
 **Timing — two orthogonal knobs (fixes confusion #1):**
 ```
 --every <dur>        # how often to wake and process a batch. 0 = single-shot (run once, exit).
