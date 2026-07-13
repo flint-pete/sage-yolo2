@@ -20,3 +20,6 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+
+# offline unit-test venv (self-bootstrapped by 'make test')
+.venv-test/
