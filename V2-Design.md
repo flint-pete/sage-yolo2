@@ -279,6 +279,15 @@ The **batch window** = frames produced since the last successful wake (bounded b
   every processed frame is added after successful inference+publish.
 - **Consuming is NON-destructive** — the frame stays in the cache (Layer-2 manager
   owns eviction). Seen-memory is the consumer's private bookmark, not a delete.
+- **The seen-store MUST be node-persistent** — it has to survive pod restarts, or a
+  one-shot scheduled run (fresh pod each fire) starts blank and re-processes the whole
+  cache. `/tmp` is pod-ephemeral and wrong. **Decision (2026-07-13):** it lives in the
+  WES cache's **reserved state area** — `/local-cache/.state/<plugin>/` — which
+  `wes-local-cache-manager` v0.2.0+ **never counts or evicts** (`RESERVED_STATE_DIRNAME`,
+  default `.state`). This makes `/local-cache` the single durable home for both frames
+  and consumer state, no extra mount. Default seen-store path:
+  `<cache-root>/.state/sage-yolo2/seen`. Fail soft if the reserved area isn't writable
+  (older manager) — warn and fall back to in-memory (dedup within the run only).
 - **Bounded memory:** prune the seen-store to a horizon (e.g. keep last N ids or ids
   newer than the cache's own retention) so it can't grow unbounded — the cache is
   bounded, so the useful seen-set is bounded too.
