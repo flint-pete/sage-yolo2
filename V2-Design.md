@@ -247,7 +247,8 @@ last ran, and processes those.
 --select <policy>           # B: which frames to pick from the batch window. See 8.3.
 --select-stride <dur>       # for --select stride: spacing between picked frames (e.g. 15m)
 --max-batch <int>           # safety cap: max frames processed per wake (0 = unlimited)
---seen-store <path>         # memory file of processed unique_ids (default under cache or state dir)
+--seen-store <path>         # override the composite seen-store path (default: auto, see 8.4)
+--consumer-id <id>          # override the <consumer-id> key segment (default: job+task; see 8.4)
 --reprocess <bool>          # if true, ignore seen-store (process regardless of memory). default false
 --max-runtime <sec>         # overall job wall-clock bound (0 = forever) — unchanged from v1
 ```
@@ -277,17 +278,38 @@ The **batch window** = frames produced since the last successful wake (bounded b
 - A tiny append-only **seen-store** (newline-delimited unique_ids, or a small
   sqlite/JSON) records what has been processed. `all-unseen` and dedup consult it;
   every processed frame is added after successful inference+publish.
-- **Consuming is NON-destructive** — the frame stays in the cache (Layer-2 manager
-  owns eviction). Seen-memory is the consumer's private bookmark, not a delete.
 - **The seen-store MUST be node-persistent** — it has to survive pod restarts, or a
   one-shot scheduled run (fresh pod each fire) starts blank and re-processes the whole
   cache. `/tmp` is pod-ephemeral and wrong. **Decision (2026-07-13):** it lives in the
-  WES cache's **reserved state area** — `/local-cache/.state/<plugin>/` — which
+  WES cache's **reserved state area** — `/local-cache/.state/...` — which
   `wes-local-cache-manager` v0.2.0+ **never counts or evicts** (`RESERVED_STATE_DIRNAME`,
   default `.state`). This makes `/local-cache` the single durable home for both frames
-  and consumer state, no extra mount. Default seen-store path:
-  `<cache-root>/.state/sage-yolo2/seen`. Fail soft if the reserved area isn't writable
-  (older manager) — warn and fall back to in-memory (dedup within the run only).
+  and consumer state, no extra mount.
+- **Seen-store path is a COMPOSITE key (multi-instance safe).** Keying by plugin name
+  alone collides when two YOLOs run (redundant instances, different class filters,
+  different cameras). The store path is:
+  ```
+  /local-cache/.state/<plugin>/<consumer-id>/<cache-name>/<camera>/seen
+  ```
+  where each segment answers a distinct question:
+  - `<plugin>` — which plugin family (e.g. `sage-yolo2`).
+  - `<consumer-id>` — which *instance*. Derived (in order) from
+    `WAGGLE_JOB_NAME` + `WAGGLE_TASK_NAME` — **stable across restarts of the same
+    scheduled instance** (so one-shot memory persists), yet **distinct between two
+    different scheduled instances** (so they don't clobber each other). Falls back to
+    `WAGGLE_APP_ID` (pod UID) only if job/task are unset — with a WARNING, because a
+    UID changes every pod and thus loses cross-restart memory. Overridable via
+    `--consumer-id` when the operator wants explicit control (e.g. two instances that
+    SHOULD share, or a rename that should keep memory).
+  - `<cache-name>/<camera>` — which producer stream it consumes (already the cache's
+    own namespacing; keeps memory separate when one YOLO watches two caches).
+  Rationale: identity = (which instance) × (what it consumes). `WAGGLE_JOB_NAME`/
+  `WAGGLE_TASK_NAME` are the same env image-sampler2 uses for provenance, so the
+  identifier is consistent across the producer/consumer pair.
+- **Consuming is NON-destructive** — the frame stays in the cache (Layer-2 manager
+  owns eviction). Seen-memory is the consumer's private bookmark, not a delete.
+- **Fail soft** if the reserved area isn't writable (older manager, no mount): warn
+  and fall back to in-memory (dedup within the run only — no cross-restart memory).
 - **Bounded memory:** prune the seen-store to a horizon (e.g. keep last N ids or ids
   newer than the cache's own retention) so it can't grow unbounded — the cache is
   bounded, so the useful seen-set is bounded too.
@@ -341,6 +363,13 @@ safe.
   unique_id alone.
 - **Seen-store missing/corrupt:** treat as empty (worst case = reprocess once);
   never block inference on bookmark I/O.
+- **Two instances on one cache (§8.4 composite key):** by default they have SEPARATE
+  seen-stores (distinct job/task → distinct `<consumer-id>`), so each independently
+  processes every frame — correct for "two different analyses of the same stream."
+  To make N identical instances COOPERATIVELY divide one cache (each frame processed
+  once, whichever grabs it first), give them a SHARED `--consumer-id`; then treat the
+  seen-store as shared and accept a benign race (a frame processed twice at most on
+  concurrent wakes — dedup is advisory, not a lock). No cross-instance locking in v1.
 
 ### 8.7 Defaults for the exemplar (v1)
 
