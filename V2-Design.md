@@ -131,25 +131,34 @@ One camera open, one decode, many consumers. That is the architectural win.
 
 ---
 
-## 5. Open questions (decide before staging)
+## 5. Decisions (locked) & remaining open questions
 
-1. **Keep standalone camera modes, or cache-only?** Lean: KEEP `--stream`/
-   `--image-dir` as fallback so sage-yolo2 still runs on a stock node for testing,
-   but make `--from-cache` the documented production path. (Matches the "standalone
-   plugins deployable now" principle.)
-2. **`read_node_info()` — vendor a copy or pip-depend?** image-sampler2 vendors its
-   own identity reader today. Lean: VENDOR `node_info_env.py` (single file, no deps)
-   for now, byte-identical to `pywaggle2-nodeinfo`, and note the sync obligation —
-   until pywaggle2 is pip-installable upstream. Keeps the plugin self-contained.
-3. **How does sage-yolo2 learn the producer's `<cache-name>`?** By convention (job
-   config passes the same cache-name to both), or discovery? Lean: explicit
-   `--from-cache <root>/<cache-name>/<camera>` (or `--cache-name` + `--camera`),
-   config-driven — no magic discovery for v1.
-4. **Consume rate vs. produce rate.** If the consumer runs faster than the producer,
-   it re-reads the same newest frame. Dedup by capture_ts (skip if unchanged)?
-   Lean: track last-seen capture_ts, skip re-inference on an unchanged newest frame.
-5. **Selection window** — is "newest single frame" enough for v1, or do we need
-   newest-K for burst inference? Lean: newest-single for v1; pin the option.
+### 5.1 Locked decisions (2026-07-13)
+
+1. **Keep standalone camera modes as fallback; `--from-cache` is the production
+   path.** `--stream`/`--image-dir` stay so sage-yolo2 still runs on a stock node for
+   testing, but `--from-cache` is the documented, intended production input. (Matches
+   the "standalone plugins deployable now" principle.)
+2. **Vendor `read_node_info()`, don't pip-depend.** Vendor `node_info_env.py` (single
+   file, no deps) byte-identical to `pywaggle2-nodeinfo`, and note the sync
+   obligation — until pywaggle2 is pip-installable upstream. Keeps the plugin
+   self-contained, matching image-sampler2's pattern.
+3. **Explicit, config-driven cache path — NO discovery for v1.** sage-yolo2 is told
+   where the cache is (`--from-cache <root>/<cache-name>/<camera>`, or
+   `--cache-name` + `--camera`); the producer and consumer agree on `<cache-name>` by
+   job config. **Fail fast** if the cache dir is not present/provisioned (i.e. the
+   prototype pywaggle2/WES `wes-local-cache-manager` mount is absent) — no silent
+   fallback, no auto-discovery. Cache discovery/announcement is explicitly DEFERRED
+   (tracked as IS-5 in sage-design-planning/plugin-improvements.md); convention
+   suffices for the exemplar.
+
+### 5.2 Remaining open questions (decide during staging)
+
+1. **Consume rate vs. produce rate.** If the consumer runs faster than the producer,
+   it re-reads the same newest frame. Lean: track last-seen capture_ts, skip
+   re-inference on an unchanged newest frame.
+2. **Selection window** — "newest single frame" for v1, or newest-K for burst
+   inference? Lean: newest-single for v1; pin the option in the API.
 
 ---
 
