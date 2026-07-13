@@ -1,8 +1,9 @@
-# sage-yolo2 — V2 Design (DRAFT / discussion)
+# sage-yolo2 — V2 Design
 
-Status: DRAFT. This document maps how to evolve **sage-yolo2** from the standalone
-sage-yolo (v0.3.1, copied in verbatim as the starting point) into the **first
-exemplar plugin built on the new core WES / pywaggle2 features**.
+Status: DESIGN LOCKED (reviewed 2026-07-13) — ready for staged implementation (§9).
+This document maps how to evolve **sage-yolo2** from the standalone sage-yolo (v0.3.1,
+copied in verbatim as the starting point) into the **first exemplar plugin built on
+the new core WES / pywaggle2 features**.
 
 The thesis in one line: sage-yolo2 stops opening its own camera and instead
 **consumes frames that image-sampler2 produced into the shared `/local-cache`**, and
@@ -44,6 +45,13 @@ annotated image. Two gaps vs. the new architecture:
 ## 2. Where we're going (sage-yolo2, the consumer)
 
 ### 2.1 New primary input: `--from-cache`
+
+> **FLAG-NAME NOTE:** §§1–5 were written before the CLI was consolidated and use the
+> first-draft flag names (`--from-cache`, `--stream`, `--image-dir`, `--continuous`,
+> `--interval`). **§10 (CLI redesign) is authoritative** for the actual flags
+> (`--source {cache,stream,snapshot,image-dir}` + `--input`, `--every`,
+> `--select-every`, …). The *semantics* below are current; only the spelling changed.
+
 A new acquisition mode that reads the **newest** frame(s) image-sampler2 wrote to a
 per-stream cache dir, instead of opening a camera. This mirrors image-sampler2's own
 `--from-cache` consumer path (already implemented there — reuse the pattern).
@@ -282,9 +290,12 @@ The **batch window** = frames produced since the last successful wake (bounded b
 
 - The **seen key is `unique_id` (SHA256 of the original frame)** — stable across
   producer restarts, re-scans, and mtime changes; the only correct identity.
-- A tiny append-only **seen-store** (newline-delimited unique_ids, or a small
-  sqlite/JSON) records what has been processed. `all-unseen` and dedup consult it;
-  every processed frame is added after successful inference+publish.
+- A tiny append-only **seen-store** records what has been processed. **Format decision
+  (2026-07-13): newline-delimited hex SHA256s** — one `unique_id` per line, plain
+  text. Simple, append-only (crash-safe: a torn final line is just skipped), trivially
+  greppable/debuggable, prune by rewrite. (Sqlite was considered and rejected as
+  over-engineered for a bounded, append-mostly set.) `all-unseen` and dedup load it
+  into a set; every processed frame is appended after successful inference+publish.
 - **The seen-store MUST be node-persistent** — it has to survive pod restarts, or a
   one-shot scheduled run (fresh pod each fire) starts blank and re-processes the whole
   cache. `/tmp` is pod-ephemeral and wrong. **Decision (2026-07-13):** it lives in the
