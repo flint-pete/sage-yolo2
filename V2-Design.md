@@ -241,6 +241,13 @@ last ran, and processes those.
 
 ### 8.2 The parameter set (first draft)
 
+> **NOTE:** the flag NAMES below are the first draft. They were later consolidated
+> for a cleaner CLI — see **§10 (CLI redesign)**, which is authoritative for flag
+> names/spelling. The *semantics* in §8.1–8.8 are unchanged; only the surface (e.g.
+> `--batch-interval`→`--every`, `--select`+`--select-stride`→`--select-every`,
+> `--from-cache`→`--source cache --input`) changed. Read §8 for behavior, §10 for
+> the actual flags.
+
 ```
 --from-cache <dir>          # per-stream cache dir (root/<cache-name>/<camera>); required in cache mode
 --batch-interval <dur>      # A: how often to wake and process a batch (e.g. 1h). 0 = single-shot.
@@ -433,10 +440,10 @@ image-sampler2 was built. Code lives in `app.py` + new small modules; keep KISS/
 - **Stage 4 — seen-memory (§8.4).** Seen-store read/add/prune keyed on unique_id;
   `--reprocess`. Gate: dedup across wakes, corrupt/missing store tolerated, prune
   horizon.
-- **Stage 5 — batching & select policies (§8.2–8.5).** `--batch-interval`,
-  `--select {newest,newest-k,stride,all-unseen}`, `--select-stride`, `--max-batch`;
-  the wake loop. Gate: each policy over a synthetic multi-frame cache; edge cases in
-  8.6; `--max-batch` cap; empty-window sleep.
+- **Stage 5 — batching & selection (§8.2–8.5, §10).** `--every`, `--select-every`,
+  `--max-frames`, `--all-unseen`; the wake loop. Gate: each selection case over a
+  synthetic multi-frame cache; edge cases in 8.6; `--max-frames` cap; empty-window
+  sleep.
 - **Stage 6 — jobs + docs + Docker.** New `jobs/` YAML running image-sampler2
   (producer) + sage-yolo2 (consumer) as a pair mounting `/local-cache`; overview/
   README rewrite for the consumer model; Dockerfile deps. Gate: docs consistent;
@@ -444,4 +451,118 @@ image-sampler2 was built. Code lives in `app.py` + new small modules; keep KISS/
 - **Stage 7 — on-node e2e (H00F).** The §6 success criteria on real hardware, incl.
   the cross-user cache read. Gate: producer writes, consumer processes without a
   camera, published detections carry VSN+GPS, loop bounded by the manager.
+
+---
+
+## 10. CLI redesign — a coherent parameter surface
+
+Adding cache mode on top of the inherited sage-yolo flags produced ~25 `--flags`
+with three kinds of confusion. Because sage-yolo2 is a NEW repo, we fix the surface
+now rather than carry the ambiguity. **Decision (2026-07-13): adopt the clean set
+below; the old CLI compatibility is intentionally dropped.**
+
+### 10.1 The three confusions we're removing
+
+1. **Four overlapping timing flags.** `--interval` (self-capture spacing — meaningless
+   without a camera), `--continuous Y/N` (loop vs once), `--max-runtime` (wall bound),
+   and the new `--batch-interval` (wake cadence) all fought over "timing."
+   `--batch-interval 0` already *means* single-shot, so `--continuous` was redundant.
+2. **Four inferred-mode input flags.** `--stream`/`--snapshot-url`/`--image-dir`/
+   `--from-cache` are mutually exclusive sources, but the mode was *inferred* by
+   precedence — set two, get a silent surprise.
+3. **Conditionally-valid flags.** `--select-stride` only meant something with
+   `--select stride`; `--max-batch` meant different things per policy. Invisible in
+   `--help`.
+
+### 10.2 The clean set
+
+**Source — one explicit selector (fixes confusion #2):**
+```
+--source {cache,stream,snapshot,image-dir}   # REQUIRED. names the acquisition mode.
+--input <value>                              # the source's argument, interpreted per --source:
+                                             #   cache     -> <root>/<cache-name>/<camera> dir
+                                             #   stream    -> camera name or RTSP URL
+                                             #   snapshot  -> HTTP snapshot URL
+                                             #   image-dir -> directory of test images
+```
+One `--source` + one `--input` replaces four inferred flags. The mode is explicit,
+self-documenting, and mutually exclusive by construction. (`cache` is the production
+default in docs/jobs; `image-dir` for local testing; `stream`/`snapshot` are the
+standalone fallback of §5.1.)
+
+**Timing — two orthogonal knobs (fixes confusion #1):**
+```
+--every <dur>        # how often to wake and process a batch. 0 = single-shot (run once, exit).
+--max-runtime <dur>  # overall wall-clock bound for the whole job. 0 = no bound.
+```
+`--interval` and `--continuous` are GONE. `--every 0` is single-shot (was
+`--continuous N`); `--every 15m` loops every 15 min (was the `--continuous Y` +
+scheduling combo). `--every` renames `--batch-interval` — shorter, and no longer
+ambiguous now that `--interval` is retired. Both accept `s/m/h` durations.
+
+**Selection — one knob + one cap (fixes confusion #3):**
+```
+--select-every <dur>   # pick one frame per <dur> of CAPTURE-time across the window.
+                       #   0 (default) = just the single newest frame.
+--max-frames <int>     # cap frames processed per wake (0 = unlimited). renamed from --max-batch.
+--all-unseen           # flag: process EVERY not-yet-seen frame in the cache (backlog drain).
+                       #   overrides --select-every; --max-frames still caps each wake.
+```
+This collapses `--select {newest,newest-k,stride,all-unseen}` + `--select-stride` +
+`--max-batch` into a single continuous knob plus one boolean:
+- `--select-every 0` → newest (the old `newest`).
+- `--select-every 15m` → one frame per 15 min of capture-time (the old `stride`).
+- `--select-every 0 --max-frames K` → K newest (the old `newest-k`).
+- `--all-unseen` → drain the backlog (the old `all-unseen`).
+No mode enum, no conditionally-meaningless companion flag — `--select-every` is
+always meaningful, and `--all-unseen` is a clearly-scoped override.
+
+**Memory — unchanged from §8.4 (already clean):**
+```
+--consumer-id <id>   # identity of this consumer's memory (default: job+task)
+--seen-store <path>  # override the auto composite path
+--reprocess          # flag: ignore seen memory this run
+```
+
+### 10.3 `--help` grouping (disambiguation aid)
+
+Argument groups make the shape legible at a glance:
+`Source` (`--source`, `--input`) · `Schedule` (`--every`, `--max-runtime`) ·
+`Selection` (`--select-every`, `--max-frames`, `--all-unseen`) ·
+`Memory` (`--consumer-id`, `--seen-store`, `--reprocess`) ·
+`Detection` (`--classes`, `--conf-thres`, `--iou-thres`, `--imgsz`, `--model`,
+`--max-det`, `--half`, `--augment`, `--agnostic-nms`) ·
+`Output` (`--upload-image`, `--save-match`).
+
+### 10.4 Validation (fail fast on incoherent combos)
+
+- `--source` required; `--input` required for every source.
+- `--select-every` / `--all-unseen` only meaningful for `--source cache`; warn (not
+  fatal) if set for stream/snapshot/image-dir.
+- `--all-unseen` + `--select-every` both set → `--all-unseen` wins, warn.
+- Cache-mode fail-fast on absent `/local-cache` root stays (§5.1).
+
+### 10.5 The §8.8 worked example, restated in the clean CLI
+
+```
+# people every 15 min
+app.py --source cache --input /local-cache/hummingcam/top --consumer-id human \
+       --classes person --every 15m
+# hummingbirds every 2 min
+app.py --source cache --input /local-cache/hummingcam/top --consumer-id fast-hummers \
+       --classes bird --every 2m
+```
+v1 exemplar default (§8.7) becomes: `--source cache --every 0 --select-every 0`
+(single-shot, newest frame).
+
+### 10.6 Net economy
+
+| Before (inherited + design) | After |
+|---|---|
+| `--stream --image-dir --snapshot-url --from-cache` (4, inferred) | `--source --input` (2, explicit) |
+| `--interval --continuous --batch-interval --max-runtime` (4) | `--every --max-runtime` (2) |
+| `--select --select-stride --max-batch` (3 + enum) | `--select-every --max-frames --all-unseen` (2 + 1 flag) |
+
+11 flags → 6, and every remaining flag is always-meaningful and unambiguous. The
+detection/output flags are inherited unchanged.
 
