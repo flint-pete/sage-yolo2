@@ -61,7 +61,11 @@ anything change that wasn't in sage-yolo2?":
 
 No sibling repo (image-sampler2, wes-local-cache-manager, wes-nodeinfo-injection,
 pywaggle2-nodeinfo) needed a code change for this work — they were already at
-their committed heads and functioned as-is. The one platform observation worth
-flagging: **image-sampler2 logs the camera snapshot URL including the password**
-in its pod logs (query-param auth) — a credential-hygiene issue in that plugin,
-not sage-yolo2. Left as a note for a future image-sampler2 change.
+their committed heads and functioned as-is. (Credential note, corrected: an
+earlier draft claimed image-sampler2 logs the camera password — it does NOT.
+`acquire.py::_redact()` replaces the `password=` value with `***` before logging
+the snapshot URL, and the password is env-only (`CAMERA_PASSWORD`), never on argv.
+The `&password=***` seen in its pod logs is the plugin's OWN redaction. The real,
+separate cleartext-cred exposure is in the old v1 `flint-pete/sage-yolo` job YAMLs
+`--snapshot-url` arg — a different plugin's v1 files, not image-sampler2.)
+
