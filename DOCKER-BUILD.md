@@ -34,6 +34,80 @@ a Sage node.
 > on Thor + side-load into k3s"** below — the script just automates them.
 
 
+## v2 cache-consumer deploy (VERIFIED end-to-end on H00F, 2026-07-14)
+
+This is the actual v2 production shape: a **producer** (`image-sampler2`) writes
+frames to the shared cache, and sage-yolo2 **consumes** them (`--source cache`).
+Both are side-loaded and run with `sudo pluginctl run`. The full e2e below was
+run on H00F and confirmed via the data API (frame-anchored `env.count.total`,
+`vsn=H00F`, seen-store dedup persisting across restarts).
+
+Key facts learned on the node (all baked into the commands):
+- **`--selector zone=core`** is required whenever you use `-v` (volume mount):
+  pluginctl refuses a mount without a node selector, and `--node <hostname>`
+  does NOT schedule (no `vsn` label on the node) — use the `zone=core` label.
+- **`--resource limit.memory=16Gi,request.memory=4Gi`** is required or the pod
+  is **OOMKilled (exit 137)** the instant YOLO11x starts inference. Do NOT pass
+  a gpu resource — `--resource resource.gpu=true` is invalid (quantities only);
+  GPU access is automatic via Thor's NVIDIA runtime.
+- Camera creds go in a **root-only env file** consumed by `--env-from`, never on
+  argv. `image-sampler2` reads `CAMERA_{HOST,PORT,CHANNEL,USER,PASSWORD}`.
+- The cache host path is `/media/plugin-data/local-cache` (from
+  `wes-local-cache-manager`); mount it to `/local-cache` in both pods.
+
+```bash
+# --- 0. camera creds -> root-only env file (NOT argv) ---
+printf 'CAMERA_HOST=10.107.0.221\nCAMERA_PORT=10000\nCAMERA_CHANNEL=0\nCAMERA_USER=USER\nCAMERA_PASSWORD=PASS\n' \
+  | ssh beckman@node-H00F.sage 'sudo tee /root/cam.env >/dev/null && sudo chmod 600 /root/cam.env'
+
+# --- 1. PRODUCER: image-sampler2 --continuous writes frames to the shared cache ---
+sudo pluginctl run --name hummingcam-producer \
+  --selector zone=core \
+  --env-from /root/cam.env \
+  -v /media/plugin-data/local-cache:/local-cache \
+  localhost/image-sampler2:0.3.0-rc -- \
+  --continuous 10 --stream top_camera --name top \
+  --cache-root /local-cache --cache-name hummingcam --cache-max-count 20 --vsn H00F
+
+# --- 2. CONSUMER: sage-yolo2 --source cache reads those frames ---
+sudo pluginctl run --name sage-yolo2-consumer \
+  --selector zone=core \
+  --resource limit.memory=16Gi,request.memory=4Gi \
+  -v /media/plugin-data/local-cache:/local-cache \
+  -e WAGGLE_JOB_NAME=stage7 -e WAGGLE_TASK_NAME=sage-yolo2 \
+  registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0 -- \
+  --source cache --input /local-cache/hummingcam/top \
+  --every 0 --all-unseen --max-frames 5 \
+  --model yolo11x.pt --conf-thres 0.25 --classes bird --save-match "bird:0.4"
+
+# --- 3. teardown ---
+sudo pluginctl rm hummingcam-producer sage-yolo2-consumer
+ssh beckman@node-H00F.sage 'sudo rm -f /root/cam.env'
+```
+
+Capturing a one-shot consumer's FULL logs before GC (pluginctl detaches its log
+stream early and the pod GCs fast): launch detached, then poll `sudo kubectl
+logs <name> -n default -c <name>` into a file until a marker
+(`no detections` / `Published` / a terminated-state reason) appears. Verify the
+publish reached the cloud via the data API:
+
+```bash
+curl -s -X POST https://data.sagecontinuum.org/api/v1/query \
+  -H 'Content-Type: application/json' \
+  -d '{"start":"-15m","filter":{"vsn":"H00F","name":"env.count.total"}}'
+# record timestamp == frame CAPTURE time (frame-anchored); meta.vsn=H00F,
+# meta.plugin=.../beckman/sage-yolo2:2.0.0, meta.task=sage-yolo2-consumer
+```
+
+> NOTE on run mode: `pluginctl run` bypasses the ECR-catalog gate, so it needs
+> **no** registration — ideal for dev/test round-trips. The production SES path
+> (`sesctl create/submit`) DOES validate against the ECR catalog and would need
+> a first-time catalog record for `beckman/sage-yolo2` (deferred — the plugin
+> ships as side-load-run for now). The canonical producer+consumer SES pair is
+> `jobs/sage-yolo2-hummingcam-h00f.yaml`.
+
+---
+
 ## Prerequisites
 
 - A build machine with internet access, Docker, and an NVIDIA GPU
@@ -247,6 +321,13 @@ sudo docker load < ~/yolo-object-counter.tar.gz
 
 
 ## Deploy via pluginctl (Sage Workflow)
+
+> **v1 HISTORICAL — the examples below use the retired v1 camera CLI**
+> (`--stream/--interval/--continuous/--snapshot-url`), which **no longer exists**
+> in v2's `app.py`. For the current v2 deploy use the verified
+> **"v2 cache-consumer deploy"** section near the top of this file. This section
+> is kept only as a record of the v1 side-load mechanics (import, resource
+> limits, monitoring), which are still accurate.
 
 For running on a Thor node with the Sage infrastructure:
 

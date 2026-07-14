@@ -1,6 +1,34 @@
 # Changelog
 
-All notable changes to the `yolo-object-counter` Sage plugin.
+All notable changes to the `sage-yolo2` Sage plugin.
+
+## Unreleased — 2026-07-14
+
+Repo-metadata and documentation sync after the on-node verification (no plugin
+code change; still version 2.0.0).
+
+### Changed
+- **`sage.yaml` → v2.0.0** — was stale from v1 (name `yolo-object-counter`,
+  version `0.3.1`, url `sage-yolo`). Now `name: sage-yolo2`, `version: 2.0.0`,
+  `url: .../sage-yolo2.git`, `branch: master`, with the v2 `--source/--input/...`
+  inputs and `pytest` test command.
+- **`ecr-meta/` refreshed for v2** — `ecr-science-description.md` rewritten around
+  the producer→cache→consumer architecture and frame-anchored measurements (was
+  the v1 camera/`--interval` story); keywords add cache-consumer / producer-consumer
+  / pywaggle2 / frame-anchored.
+- **Deploy docs** — DOCKER-BUILD.md gains a verified "v2 cache-consumer deploy"
+  section (producer + consumer `pluginctl run` recipe); v1 `pluginctl deploy`
+  examples flagged historical. THOR-TESTING.md gains a verified-on-H00F status
+  banner.
+
+### Verified (on H00F, Thor/arm64)
+- Built natively + side-loaded `registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0`
+  (10.7 GiB) — ECR portal build is N/A for this CUDA base (QEMU cross-build crash,
+  Infra #3). Ran a live **image-sampler2 producer → shared cache → sage-yolo2
+  consumer** pair. Data API confirmed `env.count.total` published **frame-anchored**
+  (record ts = frame capture ts), `meta.vsn=H00F`, `meta.node=00004cbb4701d16c`,
+  `meta.plugin=.../sage-yolo2:2.0.0`. Seen-store persisted 5 `unique_id`s; a second
+  run skipped them and processed only new frames (dedup across restart).
 
 ## 2.0.0 — 2026-07-13
 

@@ -2,6 +2,20 @@
 
 How to test the YOLO Object Counter plugin on a Sage Thor node.
 
+> **v2 STATUS (VERIFIED on H00F, 2026-07-14).** sage-yolo2 2.0.0 was built
+> natively on H00F, side-loaded into k3s (`registry.sagecontinuum.org/beckman/
+> sage-yolo2:2.0.0`, 10.7 GiB), and run as a live **producer→cache→consumer**
+> pair. Confirmed via the data API: `env.count.total` published **frame-anchored**
+> (record timestamp = frame CAPTURE time, not inference time), `meta.vsn=H00F`,
+> `meta.node=00004cbb4701d16c`; the seen-store persisted 5 `unique_id`s and a
+> second run correctly skipped them (dedup across restart). The canonical,
+> copy-pasteable v2 recipe (producer + consumer commands, `--selector zone=core`,
+> the required `--resource limit.memory=16Gi`, cred handling, log capture, data-API
+> check) lives in **DOCKER-BUILD.md → "v2 cache-consumer deploy"**. The v1 quick
+> start below (old `sage-yolo` repo, `yolo-object-counter:0.3.1`, `docker run`
+> camera CLI) is HISTORICAL — the v2 CLI is `--source/--input`, not
+> `--stream/--interval`.
+
 
 ## Quick Start: Build on Thor and Test
 
