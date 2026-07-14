@@ -29,6 +29,7 @@ from waggle.plugin import Plugin
 from waggle.data.vision import Camera
 
 from save_match import parse_save_match, should_save, SaveMatchError
+import crop_writer
 import consumer
 import selection
 import seenstore
@@ -300,6 +301,27 @@ Examples:
                         help="OR-list of 'Class:confidence' rules (e.g. bird:0.5) or "
                              "'*:0.5'. Upload the annotated frame when ANY detection "
                              "matches ANY rule.")
+
+    # ── crop-producer (v2.1.0, additive, OFF by default) ──────────────────
+    parser.add_argument("--crop-match", default="",
+                        help="OR-list of 'Class:confidence' rules (same grammar as "
+                             "--save-match). For EACH detection that matches, crop its "
+                             "bbox and write it as a v2 frame into a <camera>-crop cache "
+                             "stream for a downstream classifier (e.g. BioCLIP). Empty "
+                             "(default) = crop production OFF.")
+    parser.add_argument("--crop-padding", type=float, default=0.15,
+                        help="Fraction of bbox size to pad each crop on all sides "
+                             "(clamped to image bounds). Default 0.15.")
+    parser.add_argument("--crop-min-px", type=int, default=32,
+                        help="Skip crops whose SHORT side (after padding+clamp) is "
+                             "below this many pixels — a tiny box is useless to a "
+                             "classifier; skip rather than upscale. Default 32.")
+    parser.add_argument("--crop-cache-name", default="",
+                        help="Cache name for the crop ring (default: <job>-crops).")
+    parser.add_argument("--crop-max-count", type=int, default=500,
+                        help="Max crops per stream ring (evict oldest). Default 500.")
+    parser.add_argument("--crop-max-mb", type=float, default=500.0,
+                        help="Max MB (decimal 10^6) per crop stream ring. Default 500.")
     args = parser.parse_args()
 
     target_classes = None
@@ -309,9 +331,16 @@ Examples:
 
     try:
         save_rules = parse_save_match(args.save_match)
+        crop_rules = parse_save_match(args.crop_match)   # same grammar; empty = OFF
     except SaveMatchError as e:
-        logger.error("Invalid --save-match: %s", e)
+        logger.error("Invalid --save-match/--crop-match: %s", e)
         raise SystemExit(2)
+    if crop_rules:
+        logger.info("crop-producer ON: rules=%s padding=%.2f min-px=%d "
+                    "cache=%s caps=[count=%d, mb=%.1f]",
+                    args.crop_match, args.crop_padding, args.crop_min_px,
+                    args.crop_cache_name or "<job>-crops",
+                    args.crop_max_count, args.crop_max_mb)
 
     try:
         every_s = selection.parse_duration(args.every)
@@ -364,14 +393,16 @@ Examples:
                 if is_cache:
                     _process_cache_wake(plugin, detector, args, target_classes,
                                         save_rules, seen, last_wake_ts_ns,
-                                        select_every_s)
+                                        select_every_s, crop_rules=crop_rules)
                     last_wake_ts_ns = time.time_ns()
                 elif is_image_dir:
                     if not _process_image_dir(plugin, detector, args, target_classes,
-                                              save_rules, img_iter):
+                                              save_rules, img_iter,
+                                              crop_rules=crop_rules):
                         break
                 else:
-                    _process_live(plugin, detector, args, target_classes, save_rules)
+                    _process_live(plugin, detector, args, target_classes, save_rules,
+                                  crop_rules=crop_rules)
             except Exception:
                 logger.exception("wake error")
 
@@ -438,8 +469,106 @@ def _maybe_upload(plugin, args, detections, frame, *, timestamp, camera, save_ru
     logger.info("Uploaded annotated image (%d detections)", len(detections))
 
 
+def _pad_clamp_bbox(bbox, w, h, padding):
+    """Pad a [x1,y1,x2,y2] box by `padding` fraction of its size, clamp to image.
+
+    Returns (x1,y1,x2,y2) ints with 0<=x1<x2<=w and 0<=y1<y2<=h, or None if the
+    (clamped) box is degenerate (zero area)."""
+    x1, y1, x2, y2 = bbox
+    bw, bh = x2 - x1, y2 - y1
+    px, py = int(round(bw * padding)), int(round(bh * padding))
+    x1, y1 = max(0, x1 - px), max(0, y1 - py)
+    x2, y2 = min(w, x2 + px), min(h, y2 + py)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
+
+
+def _maybe_produce_crops(plugin, args, detections, frame, *, timestamp, camera,
+                         crop_rules, identity=None, source_uid=""):
+    """Crop each matching detection and ring-write it as a v2 frame (crop-producer).
+
+    No-op when crop_rules is empty (default). For each detection passing
+    --crop-match: pad+clamp the bbox, apply the --crop-min-px floor, encode JPEG,
+    embed v2 metadata (inheriting the parent capture_ts + identity, adding source_*
+    provenance and detection_index), and ring-write into <crop-cache-name>/
+    <camera>-crop-<idx>/. Publishes env.crop.count (frame-anchored). Fail-soft:
+    a per-crop error is logged and skipped, never crashing the wake."""
+    if not crop_rules:
+        return 0
+    h, w = frame.shape[:2]
+    vsn = (identity.vsn if identity and identity.vsn else "unknown")
+    node_id = (identity.node_id if identity and identity.node_id else "")
+    lat = identity.lat if (identity and identity.has_location) else None
+    lon = identity.lon if (identity and identity.has_location) else None
+    job = os.environ.get("WAGGLE_JOB_NAME", "").strip() or "sage"
+    task = os.environ.get("WAGGLE_TASK_NAME", "").strip() or "sage-yolo2"
+    plugin_str = _plugin_id_string()
+    cache_root = consumer.resolve_cache_root()   # crops share the raw cache root
+    cache_name = args.crop_cache_name or ("%s-crops" % job)
+
+    produced = 0
+    for idx, det in enumerate(detections):
+        if not should_save(crop_rules, [det], name_keys=["class"]):
+            continue
+        clamped = _pad_clamp_bbox(det["bbox"], w, h, args.crop_padding)
+        if clamped is None:
+            continue
+        x1, y1, x2, y2 = clamped
+        if min(x2 - x1, y2 - y1) < args.crop_min_px:      # tiny-crop floor
+            logger.info("skip crop (short side %dpx < --crop-min-px %d): %s",
+                        min(x2 - x1, y2 - y1), args.crop_min_px, det["class"])
+            continue
+        try:
+            crop_img = frame[y1:y2, x1:x2]
+            ok, buf = cv2.imencode(".jpg", crop_img)
+            if not ok:
+                logger.warning("crop encode failed: %s idx=%d", det["class"], idx)
+                continue
+            crop_cam = "%s-crop-%d" % (camera, idx)
+            source = {
+                "source_class": det["class"],
+                "source_confidence": float(det["confidence"]),
+                "source_bbox": [int(v) for v in det["bbox"]],
+                "source_unique_id": source_uid or "",
+                "detection_index": idx,
+            }
+            final, _uid = crop_writer.embed_all(
+                buf.tobytes(), vsn=vsn, node_id=node_id, job=job, task=task,
+                plugin=plugin_str, camera=crop_cam, capture_ts_ns=int(timestamp),
+                upload_ts_ns=None, lat=lat, lon=lon,
+                acquisition_path="opencv-reencoded", source=source)
+            sdir = crop_writer.stream_dir(cache_root, cache_name, crop_cam)
+            name = crop_writer.build_v2_name(int(timestamp), vsn, crop_cam)
+            res = crop_writer.write_frame(final, sdir, name,
+                                          max_count=args.crop_max_count,
+                                          max_mb=args.crop_max_mb)
+            for wmsg in res.warnings:
+                logger.warning("crop ring: %s", wmsg)
+            if res.written:
+                produced += 1
+        except Exception:
+            logger.exception("crop production failed: %s idx=%d", det["class"], idx)
+
+    if produced:
+        plugin.publish("env.crop.count", produced, timestamp=timestamp,
+                       meta={"camera": camera, "cache_name": cache_name})
+        logger.info("Produced %d crop(s) into %s/%s-crop-*", produced,
+                    cache_name, camera)
+    return produced
+
+
+def _plugin_id_string():
+    """'<registry.../name>:<version>' from WES env, best-effort."""
+    name = os.environ.get("WAGGLE_PLUGIN_NAME", "").strip()
+    version = os.environ.get("WAGGLE_PLUGIN_VERSION", "").strip()
+    if name and version:
+        return "%s:%s" % (name, version)
+    return name or "sage-yolo2"
+
+
 def _process_cache_wake(plugin, detector, args, target_classes, save_rules, seen,
-                        last_wake_ts_ns, select_every_s):
+                        last_wake_ts_ns, select_every_s, *, crop_rules=None):
     """One cache wake: scan -> select -> per frame read metadata + identity, infer,
     publish frame-anchored, mark seen (8.5)."""
     frames = consumer.scan_frames(args.input)
@@ -468,6 +597,9 @@ def _process_cache_wake(plugin, detector, args, target_classes, save_rules, seen
                             identity=identity)
         _maybe_upload(plugin, args, detections, img, timestamp=ts, camera=cam,
                       save_rules=save_rules)
+        _maybe_produce_crops(plugin, args, detections, img, timestamp=ts,
+                             camera=cam, crop_rules=crop_rules, identity=identity,
+                             source_uid=meta.unique_id or "")
         if meta.unique_id:
             seen.mark(meta.unique_id)
         if not detections:
@@ -480,7 +612,8 @@ def _frame_uid(frame):
     return meta.unique_id or frame.name
 
 
-def _process_image_dir(plugin, detector, args, target_classes, save_rules, img_iter):
+def _process_image_dir(plugin, detector, args, target_classes, save_rules, img_iter,
+                       *, crop_rules=None):
     """One image from the local test directory. Returns False when exhausted."""
     with plugin.timeit("plugin.duration.input"):
         try:
@@ -494,12 +627,15 @@ def _process_image_dir(plugin, detector, args, target_classes, save_rules, img_i
     _publish_detections(plugin, args, detections, timestamp=timestamp, camera=camera)
     _maybe_upload(plugin, args, detections, frame, timestamp=timestamp,
                   camera=camera, save_rules=save_rules)
+    _maybe_produce_crops(plugin, args, detections, frame, timestamp=timestamp,
+                         camera=camera, crop_rules=crop_rules)
     if not detections:
         logger.info("No detections: %s", os.path.basename(img_path))
     return True
 
 
-def _process_live(plugin, detector, args, target_classes, save_rules):
+def _process_live(plugin, detector, args, target_classes, save_rules,
+                  *, crop_rules=None):
     """One live frame (stream or snapshot standalone fallback)."""
     with plugin.timeit("plugin.duration.input"):
         if args.source == "snapshot":
@@ -514,6 +650,8 @@ def _process_live(plugin, detector, args, target_classes, save_rules):
     _publish_detections(plugin, args, detections, timestamp=timestamp, camera=camera)
     _maybe_upload(plugin, args, detections, frame, timestamp=timestamp,
                   camera=camera, save_rules=save_rules)
+    _maybe_produce_crops(plugin, args, detections, frame, timestamp=timestamp,
+                         camera=camera, crop_rules=crop_rules)
 
 
 if __name__ == "__main__":
