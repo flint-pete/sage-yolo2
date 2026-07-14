@@ -605,7 +605,10 @@ This collapses `--select {newest,newest-k,stride,all-unseen}` + `--select-stride
 `--max-batch` into a single continuous knob plus one boolean:
 - `--select-every 0` → newest (the old `newest`).
 - `--select-every 15m` → one frame per 15 min of capture-time (the old `stride`).
-- `--select-every 0 --max-frames K` → K newest (the old `newest-k`).
+- `--select-every 0 --max-frames K` → **the K NEWEST frames** (the old `newest-k`).
+  IMPLEMENTATION NOTE (Stage 5): the newest branch takes `window[-K:]` when
+  `--max-frames K>1` — max-frames is not merely a post-cap here; it selects the K
+  newest. For stride/all-unseen, `--max-frames` IS the oldest-first drain cap.
 - `--all-unseen` → drain the backlog (the old `all-unseen`).
 No mode enum, no conditionally-meaningless companion flag — `--select-every` is
 always meaningful, and `--all-unseen` is a clearly-scoped override.
