@@ -12,12 +12,12 @@ PY   := $(VENV)/bin/python
 .PHONY: test clean
 
 test: $(VENV)/.stamp
-	$(PY) -m pytest -q tests/test_consumer.py tests/test_save_match.py
+	$(PY) -m pytest -q tests/test_consumer.py tests/test_consumer_meta.py tests/test_save_match.py
 
 $(VENV)/.stamp:
 	python3 -m venv $(VENV)
 	$(PY) -m pip install --quiet --upgrade pip
-	$(PY) -m pip install --quiet pytest
+	$(PY) -m pip install --quiet pytest Pillow piexif
 	touch $@
 
 clean:
