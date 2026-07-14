@@ -16,6 +16,14 @@ code change; still version 2.0.0).
   the producer→cache→consumer architecture and frame-anchored measurements (was
   the v1 camera/`--interval` story); keywords add cache-consumer / producer-consumer
   / pywaggle2 / frame-anchored.
+- **Deploy docs — GPU sharing & memory contention.** DOCKER-BUILD.md gains a
+  "GPU sharing & memory contention" section: separates GPU COMPUTE (time-sliced,
+  a sleeping plugin issues zero kernels → does not exclude a co-tenant) from GPU
+  MEMORY (resident model cost; a NON-issue on Thor's ~122 GB unified memory, but
+  real on small-VRAM NX/Xavier nodes) from the WES scheduler `resource.gpu`
+  PLACEMENT gate. Concludes the self-sleep-vs-SES-cron choice on Thor is a
+  reliability decision, not a GPU-contention one. Corrects an earlier
+  overstatement that a sleeping GPU plugin "locks out" others.
 - **Deploy docs** — DOCKER-BUILD.md gains a verified "v2 cache-consumer deploy"
   section (producer + consumer `pluginctl run` recipe); v1 `pluginctl deploy`
   examples flagged historical. THOR-TESTING.md gains a verified-on-H00F status

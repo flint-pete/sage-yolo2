@@ -108,6 +108,66 @@ curl -s -X POST https://data.sagecontinuum.org/api/v1/query \
 
 ---
 
+## GPU sharing & memory contention (co-running with BioCLIP et al.)
+
+A recurring question: does a **continuous/self-sleep** consumer (one long-lived
+pod that processes a batch, `sleep`s ~10 min, repeats) block other GPU plugins
+(BioCLIP, etc.) while it sleeps? The answer depends on separating **two
+independent kinds of GPU contention** — and conflating them leads to wrong
+deploy decisions.
+
+**1. GPU COMPUTE (SM time) — time-sliced, NOT exclusive.** The CUDA driver
+interleaves kernels from all processes on the GPU. A plugin only contends for
+compute *while it is actually issuing kernels* (during inference, a few seconds
+per batch here). While a self-sleep consumer is in `time.sleep(600)` it issues
+**zero** kernels — it is not on the GPU computationally at all, and a co-tenant
+gets 100% of the compute. **A sleeping consumer does not lock out another
+plugin's compute.** True hard exclusion only happens if a process explicitly
+takes the GPU exclusively (e.g. `nvidia-smi -c EXCLUSIVE_PROCESS`, or MPS in a
+mode that serializes) — which we do NOT do.
+
+**2. GPU MEMORY (VRAM) — the only real steady-state cost, and it's node-dependent.**
+A loaded model + CUDA context stay resident for the pod's whole life, including
+the sleep window (YOLO11x ≈ 5 GB; BioCLIP ViT-H ≈ 28 GB). Whether that blocks a
+co-tenant is **entirely a function of the node's memory budget:**
+
+| Node profile | Memory | Two resident heavy models? |
+|---|---|---|
+| **Thor (H00F)** — Jetson, **unified** memory | **~122 GB** (~69 GB free) | Trivial. 5 GB + 28 GB fit with tens of GB to spare. **No contention.** |
+| NX / Xavier / small discrete GPU | ~8–16 GB VRAM | Two resident heavy models **exhaust VRAM** → the second OOMs / can't load. **Real contention.** |
+
+**CONSEQUENCE for the deploy decision on Thor:** a self-sleep consumer costs
+~5 GB of 122 GB and zero sleep-time compute, so **it does not meaningfully
+impede BioCLIP or any other GPU plugin.** GPU sharing is therefore a
+**non-issue** on Thor — the self-sleep-vs-SES-cron choice reduces to
+**reliability/operability** (see below), not resource contention.
+
+On a **memory-constrained node** the calculus flips: a resident-but-sleeping
+model genuinely blocks a co-tenant, and you must either (a) run one-shot SES cron
+so VRAM is freed between ticks, or (b) use bounded **windowing**
+(`--max-runtime <sec>`) so the continuous pod releases VRAM between windows
+(the classic single-small-GPU duty-cycle pattern).
+
+### Self-sleep (continuous) vs SES one-shot cron — the reliability tradeoff (Thor)
+
+Since GPU contention is off the table on Thor, choose on operability:
+
+| | Self-sleep (continuous pod) | SES one-shot cron (`*/10 * * * *`) |
+|---|---|---|
+| Model cold start | Once (warm thereafter) | Every wake (~2–5 s reload) |
+| Reboot survival | No (pluginctl pod won't return) | Yes (scheduler respawns) |
+| Crash blast radius | Kills ALL future wakes | One tick dies; next tick is clean (**self-healing**) |
+| Scheduler visibility | None | Full (restart policy, accounting) |
+| ECR catalog record | Not needed | **Required** (first-time registration) |
+
+Lean for a long-period / short-batch / shared-Thor workload: **SES one-shot
+cron** (self-healing + reboot survival; the seen-store makes one-shot batches
+equivalent to self-sleep batches). Lean for a **dedicated**-GPU or
+cold-start-sensitive workload: self-sleep. Either way on Thor, both share the
+GPU equally well.
+
+---
+
 ## Prerequisites
 
 - A build machine with internet access, Docker, and an NVIDIA GPU
