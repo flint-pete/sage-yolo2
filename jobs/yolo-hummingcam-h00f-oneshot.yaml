@@ -31,18 +31,20 @@
 # ──────────────────────────────────────────────────────────────
 name: yolo-hummingcam-oneshot
 plugins:
-  - name: yolo-object-counter
+  - name: sage-yolo2
     pluginSpec:
-      image: registry.sagecontinuum.org/beckman/yolo-object-counter:0.3.1
+      image: registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0
       args:
-        - "--snapshot-url"
+        - "--source"
+        - "snapshot"
+        - "--input"
         - "http://10.107.0.221:10000/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snap&user=sage&password=REPLACE_ME&width=640&height=360"
+        - "--every"
+        - "0"
         - "--model"
         - "yolo11x.pt"
         - "--conf-thres"
         - "0.25"
-        - "--continuous"
-        - "N"
         - "--upload-image"
         - "Y"
       selector:
@@ -50,6 +52,6 @@ plugins:
 nodes:
   H00F: true
 scienceRules:
-  - "schedule(yolo-object-counter): cronjob('yolo-object-counter', '*/10 * * * *')"
+  - "schedule(sage-yolo2): cronjob('sage-yolo2', '*/10 * * * *')"
 successcriteria:
   - WallClock('30day')

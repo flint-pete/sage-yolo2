@@ -1,25 +1,30 @@
 # ──────────────────────────────────────────────────────────────
-# YOLO Object Counter — sample job specification
-# Deploy on node W097 (Chicago) counting people and cars
+# sage-yolo2 — sample job (STANDALONE stream fallback)
+# Deploy on node W097 (Chicago) counting people and vehicles.
+#
+# NOTE: this uses --source stream (sage-yolo2 opens the camera directly). That's the
+# standalone FALLBACK path for a stock node with no shared cache. The intended v2
+# production path is --source cache (consume image-sampler2's frames) — see
+# jobs/sage-yolo2-hummingcam-h00f.yaml.
 # ──────────────────────────────────────────────────────────────
 name: yolo-counter-chicago
 plugins:
-  - name: yolo-object-counter
+  - name: sage-yolo2
     pluginSpec:
-      image: registry.sagecontinuum.org/beckman/yolo-object-counter:0.3.1
+      image: registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0
       args:
-        - "--stream"
+        - "--source"
+        - "stream"
+        - "--input"
         - "bottom_camera"
         - "--model"
         - "yolo11n.pt"          # lightweight model for demo; change to yolo11x.pt for best accuracy
-        - "--interval"
-        - "30"
+        - "--every"
+        - "30s"
         - "--conf-thres"
         - "0.25"
         - "--classes"
         - "person,car,truck,bus,bicycle"
-        - "--continuous"
-        - "Y"
         - "--upload-image"
         - "Y"
       selector:
@@ -27,4 +32,4 @@ plugins:
 nodes:
   W097: true
 scienceRules:
-  - "schedule(yolo-object-counter): cronjob('yolo-object-counter', '*/5 * * * *')"
+  - "schedule(sage-yolo2): cronjob('sage-yolo2', '*/5 * * * *')"

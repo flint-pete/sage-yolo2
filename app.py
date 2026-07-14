@@ -29,6 +29,9 @@ from waggle.plugin import Plugin
 from waggle.data.vision import Camera
 
 from save_match import parse_save_match, should_save, SaveMatchError
+import consumer
+import selection
+import seenstore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -176,89 +179,127 @@ def fetch_snapshot(url: str) -> np.ndarray:
     return frame
 
 
+# ── cache consumer helpers (v2) ──────────────────────────────────────
+def resolve_consumer_id(override=None):
+    """The <consumer-id> seen-store segment (V2-Design §8.4).
+
+    Must be BOTH stable across restarts of the same scheduled instance (so one-shot
+    memory persists) AND distinct between different instances (so they don't clobber).
+    Order: --consumer-id override > WAGGLE_JOB_NAME+WAGGLE_TASK_NAME > WAGGLE_APP_ID
+    (pod UID, WITH warning -- it changes every pod, losing cross-restart memory).
+    """
+    if override:
+        return override
+    job = os.environ.get("WAGGLE_JOB_NAME", "").strip()
+    task = os.environ.get("WAGGLE_TASK_NAME", "").strip()
+    if job or task:
+        return "%s-%s" % (job or "job", task or "task")
+    app_id = os.environ.get("WAGGLE_APP_ID", "").strip()
+    if app_id:
+        logger.warning("no WAGGLE_JOB_NAME/TASK_NAME; using WAGGLE_APP_ID (%s) as "
+                       "consumer-id -- pod UID changes each restart, so cross-restart "
+                       "seen-memory will NOT persist. Set --consumer-id to fix.", app_id)
+        return app_id
+    logger.warning("no consumer identity in env; using 'default' consumer-id")
+    return "default"
+
+
+def parse_cache_input(input_path, cache_root):
+    """Split --input (<root>/<cache-name>/<camera>) into (cache_name, camera).
+
+    Used to build the composite seen-store path. Best-effort: takes the last two
+    path segments; if the input isn't under cache_root the segments still work for
+    keying (they just describe the stream). Returns (cache_name, camera).
+    """
+    norm = os.path.normpath(input_path).rstrip("/")
+    parts = norm.split(os.sep)
+    camera = parts[-1] if parts else "camera"
+    cache_name = parts[-2] if len(parts) >= 2 else "cache"
+    return cache_name, camera
+
+
 # ── main loop ───────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
-        description="YOLO Object Counter for Sage",
+        description="sage-yolo2 — YOLO11x object counter, pywaggle2 CACHE CONSUMER",
         epilog="""
 Examples:
-  # Normal mode — capture from camera on a Sage node
-  python3 app.py --stream bottom_camera --classes bird --interval 60
+  # Production: consume frames image-sampler2 wrote to the shared cache (NO camera)
+  python3 app.py --source cache --input /local-cache/hummingcam/top --classes bird
 
-  # Local testing — detect objects in all images in a directory
-  export PYWAGGLE_LOG_DIR=./test-output
-  python3 app.py --image-dir ./test-images --continuous N
+  # Local testing: a directory of images, no node/cache/camera
+  python3 app.py --source image-dir --input ./tests/test-images --every 0
 
-  # Local testing — single image via --stream (legacy)
-  python3 app.py --stream /path/to/photo.jpg --continuous N
+  # Standalone fallback: live camera (stock node, no cache provisioned)
+  python3 app.py --source stream --input bottom_camera --every 30s
 
-  # Filter to specific COCO classes
-  python3 app.py --image-dir ./test-images --classes "person,car,truck" --continuous N
-
-  # HTTP snapshot camera (e.g. Reolink via port-mapped router)
-  python3 app.py --snapshot-url "http://IP:PORT/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snap&user=USER&password=PASS" --continuous N
+  # Standalone fallback: HTTP snapshot camera (creds via the URL / a Secret)
+  python3 app.py --source snapshot --input "http://IP:PORT/cgi-bin/api.cgi?cmd=Snap&user=U&password=P" --every 0
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--stream", default="bottom_camera",
-                        help="Camera stream name or RTSP URL (ignored if --image-dir is set)")
-    parser.add_argument("--image-dir", default=None,
-                        help="Directory of test images (replaces camera input for local testing)")
-    parser.add_argument("--snapshot-url", default=None,
-                        help="HTTP URL that returns a JPEG snapshot (e.g. Reolink CGI API). "
-                             "Overrides --stream. Credentials go in the URL query string. "
-                             "Example: http://IP:PORT/cgi-bin/api.cgi?cmd=Snap&channel=0"
-                             "&rs=snap&user=USER&password=PASS")
+
+    # ── source (explicit, mutually exclusive by construction — §10) ──
+    parser.add_argument("--source", required=True,
+                        choices=["cache", "stream", "snapshot", "image-dir"],
+                        help="Acquisition mode. cache=consume producer frames from the "
+                             "shared WES cache (production); stream/snapshot=live camera "
+                             "(standalone fallback); image-dir=local test folder.")
+    parser.add_argument("--input", required=True,
+                        help="The source's argument: cache dir "
+                             "(<root>/<cache-name>/<camera>) | camera name/RTSP URL | "
+                             "HTTP snapshot URL | directory of test images.")
+
+    # ── timing (two orthogonal clocks — 8.1/10) ──
+    parser.add_argument("--every", default="0",
+                        help="Wake cadence (batch clock): how often to process a batch. "
+                             "0 = single-shot (run once, exit). Accepts s/m/h (e.g. 1h).")
+    parser.add_argument("--select-every", default="0",
+                        help="Sampling stride: one frame per this much CAPTURE-time. "
+                             "0 = the single newest unseen frame. Accepts s/m/h (e.g. 15m).")
+    parser.add_argument("--max-frames", type=int, default=1,
+                        help="Cap frames processed per wake (0 = unlimited). With "
+                             "--select-every 0 this means the K NEWEST frames.")
+    parser.add_argument("--all-unseen", action="store_true",
+                        help="Backlog mode: process EVERY not-yet-seen frame in the "
+                             "cache (capped by --max-frames per wake). Overrides "
+                             "--select-every.")
+    parser.add_argument("--max-runtime", type=int, default=0,
+                        help="Overall wall-clock bound in seconds (0 = forever).")
+
+    # ── seen-memory (cache mode) ──
+    parser.add_argument("--consumer-id", default=None,
+                        help="Override the seen-store <consumer-id> segment (default: "
+                             "WAGGLE_JOB_NAME+WAGGLE_TASK_NAME). Give two instances the "
+                             "SAME id to make them cooperatively divide one cache.")
+    parser.add_argument("--seen-store", default=None,
+                        help="Override the full seen-store path (default: auto, under "
+                             "the cache's reserved .state area).")
+    parser.add_argument("--reprocess", action="store_true",
+                        help="Ignore the seen-store (process regardless of memory). "
+                             "Still records what it processes.")
+
+    # ── model / inference (unchanged from v1) ──
     parser.add_argument("--model", default="yolo11x.pt",
-                        help="YOLO model name/path (e.g. yolo11x.pt, yolov8x.pt, yolo11n.pt)")
-    parser.add_argument("--interval", type=int, default=30,
-                        help="Seconds between captures (camera mode only)")
-    parser.add_argument("--conf-thres", type=float, default=0.25,
-                        help="Confidence threshold (0.0-1.0, default: 0.25)")
-    parser.add_argument("--iou-thres", type=float, default=0.45,
-                        help="IoU threshold for NMS (0.0-1.0, default: 0.45)")
-    parser.add_argument("--imgsz", type=int, default=640,
-                        help="Input image size for inference — images are resized to this "
-                             "before YOLO processes them (default: 640). Larger values "
-                             "detect smaller objects but use more GPU memory and are slower. "
-                             "See: https://docs.ultralytics.com/modes/predict/#inference-arguments")
-    parser.add_argument("--half", action="store_true",
-                        help="Use FP16 half-precision inference (faster, slightly less accurate). "
-                             "See: https://docs.ultralytics.com/modes/predict/#inference-arguments")
-    parser.add_argument("--max-det", type=int, default=300,
-                        help="Maximum detections per image (default: 300). Lower this if you "
-                             "only expect a few objects per frame.")
-    parser.add_argument("--augment", action="store_true",
-                        help="Enable test-time augmentation (TTA) — runs inference at multiple "
-                             "scales/flips for better accuracy at the cost of ~3x slower speed. "
-                             "See: https://docs.ultralytics.com/modes/predict/#inference-arguments")
-    parser.add_argument("--agnostic-nms", action="store_true",
-                        help="Class-agnostic NMS — treats all classes as one during NMS. "
-                             "Useful when overlapping objects of different classes cause duplicates.")
+                        help="YOLO model name/path (e.g. yolo11x.pt, yolo11n.pt)")
     parser.add_argument("--classes", default="",
                         help="Comma-separated classes to count (empty = all)")
-    parser.add_argument("--continuous", default="Y",
-                        help="Y = loop, N = single-shot")
-    parser.add_argument("--max-runtime", type=int, default=0,
-                        help="When in continuous mode (--continuous Y), exit after this "
-                             "many seconds (0 = run forever). Lets a scheduled job behave "
-                             "like one long bounded single-shot: e.g. --max-runtime 600 "
-                             "--interval 15 samples every 15s for ~10 min then self-exits, "
-                             "freeing the GPU for other plugins. Ignored when --continuous N.")
+    parser.add_argument("--conf-thres", type=float, default=0.25)
+    parser.add_argument("--iou-thres", type=float, default=0.45)
+    parser.add_argument("--imgsz", type=int, default=640)
+    parser.add_argument("--half", action="store_true")
+    parser.add_argument("--max-det", type=int, default=300)
+    parser.add_argument("--augment", action="store_true")
+    parser.add_argument("--agnostic-nms", action="store_true")
+
+    # ── upload / save (unchanged from v1) ──
     parser.add_argument("--upload-image", default="Y",
-                        help="DEPRECATED gate kept for back-compat. Y = allow image "
-                             "uploads, N = never upload. Actual saving is governed by "
-                             "--save-match; with --upload-image Y and no --save-match, "
-                             "every cycle with detections is uploaded (legacy behavior).")
+                        help="Y = allow annotated-image uploads, N = never. Governed by "
+                             "--save-match when set.")
     parser.add_argument("--save-match", default="",
-                        help="When to SAVE (upload) the annotated frame. Comma-separated "
-                             "OR-list of 'Class:confidence' rules, e.g. "
-                             "\"bird:0.5,cat:0.6\". Class is matched case-insensitively "
-                             "and EXACTLY against the COCO class name. Use \"*:0.5\" to "
-                             "save any frame with a detection >=0.5. The frame is saved "
-                             "if ANY detection matches ANY rule. When set, it REPLACES "
-                             "the legacy upload-every-cycle behavior. Omit to keep legacy "
-                             "behavior (governed by --upload-image).")
+                        help="OR-list of 'Class:confidence' rules (e.g. bird:0.5) or "
+                             "'*:0.5'. Upload the annotated frame when ANY detection "
+                             "matches ANY rule.")
     args = parser.parse_args()
 
     target_classes = None
@@ -266,179 +307,213 @@ Examples:
         target_classes = [c.strip().lower() for c in args.classes.split(",")]
         logger.info("Filtering to classes: %s", target_classes)
 
-    # Parse --save-match up front and FAIL FAST on a malformed spec.
     try:
         save_rules = parse_save_match(args.save_match)
     except SaveMatchError as e:
         logger.error("Invalid --save-match: %s", e)
         raise SystemExit(2)
-    if save_rules:
-        logger.info("Image save rules (--save-match): %s",
-                    ", ".join(f"{'*' if r.is_wildcard else r.name}>={r.min_confidence}"
-                              for r in save_rules))
-    elif args.upload_image == "Y":
-        logger.info("No --save-match rules: using legacy behavior — upload every "
-                    "cycle that has detections (--upload-image Y).")
-    else:
-        logger.info("No --save-match rules and --upload-image N: images will NOT "
-                    "be saved (counts + heartbeat still publish).")
+
+    try:
+        every_s = selection.parse_duration(args.every)
+        select_every_s = selection.parse_duration(args.select_every)
+    except ValueError as e:
+        logger.error("Invalid duration: %s", e)
+        raise SystemExit(2)
 
     detector = YOLODetector(args.model, args.conf_thres, args.iou_thres,
                             imgsz=args.imgsz, half=args.half,
                             max_det=args.max_det, augment=args.augment,
                             agnostic_nms=args.agnostic_nms)
 
-    # ── Choose image source ──────────────────────────────────────────
-    using_image_dir = args.image_dir is not None
-    using_snapshot_url = args.snapshot_url is not None
+    is_cache = args.source == "cache"
+    is_image_dir = args.source == "image-dir"
 
-    if using_image_dir:
-        # Local testing mode: read images from a directory
-        image_source = iter_image_dir(args.image_dir)
-        source_label = f"image-dir:{args.image_dir}"
-    elif using_snapshot_url:
-        # HTTP snapshot mode: fetch JPEG from URL each cycle
-        source_label = args.snapshot_url.split("?")[0]  # log URL without query params
-    else:
-        # Production mode: capture from camera (RTSP or named)
-        camera = Camera(args.stream)
-        source_label = args.stream
+    seen = None
+    if is_cache:
+        try:
+            consumer.assert_cache_available(args.input)
+        except consumer.CacheError as e:
+            logger.error("%s", e)
+            raise SystemExit(2)
+        cache_root = consumer.resolve_cache_root()
+        cache_name, camera = parse_cache_input(args.input, cache_root)
+        consumer_id = resolve_consumer_id(args.consumer_id)
+        store_path = args.seen_store or seenstore.seen_store_path(
+            cache_root, consumer_id, cache_name, camera)
+        seen = seenstore.SeenStore(store_path, reprocess=args.reprocess)
+        logger.info("cache consumer: input=%s consumer-id=%s seen-store=%s (%d known)",
+                    args.input, consumer_id, store_path, len(seen))
 
     with Plugin() as plugin:
-        logger.info("Plugin started — source=%s, interval=%ds, model=%s",
-                     source_label, args.interval, args.model)
-
-        # Load the model, timed as plugin.duration.loadmodel (nanoseconds) —
-        # the standard Sage telemetry convention (see avian-diversity-monitoring
-        # / TAFT). Makes cold-start cost observable for GPU-window sizing.
+        logger.info("sage-yolo2 started — source=%s input=%s model=%s every=%ds",
+                    args.source, args.input, args.model, every_s)
         with plugin.timeit("plugin.duration.loadmodel"):
             detector.load()
 
-        if not using_image_dir:
-            logger.info("Capture interval: %ds", args.interval)
-
-        # Bounded continuous mode: in --continuous Y, optionally self-exit after
-        # --max-runtime seconds so a scheduled job runs like one long single-shot
-        # and frees the GPU for other plugins. deadline=None means run forever.
         deadline = None
-        if args.continuous == "Y" and args.max_runtime > 0 and not using_image_dir:
+        if every_s > 0 and args.max_runtime > 0:
             deadline = time.monotonic() + args.max_runtime
-            logger.info("Max runtime: %ds — will self-exit at the end of the window",
+            logger.info("Max runtime: %ds — will self-exit at end of window",
                         args.max_runtime)
+
+        last_wake_ts_ns = 0
+        img_iter = iter_image_dir(args.input) if is_image_dir else None
 
         while True:
             try:
-                # Acquire input, timed as plugin.duration.input (nanoseconds) —
-                # standard Sage phase metric, published every cycle (even on
-                # empty scenes) so it doubles as a liveness signal.
-                with plugin.timeit("plugin.duration.input"):
-                    if using_image_dir:
-                        # Get next image from directory iterator
-                        try:
-                            img_path, frame, timestamp = next(image_source)
-                        except StopIteration:
-                            logger.info("All test images processed")
-                            break
-                        source_name = os.path.basename(img_path)
-                        logger.info("Processing: %s (%dx%d)",
-                                    source_name, frame.shape[1], frame.shape[0])
-                    elif using_snapshot_url:
-                        frame = fetch_snapshot(args.snapshot_url)
-                        timestamp = time.time_ns()
-                        source_name = "http-snapshot"
-                        logger.info("Snapshot: %dx%d from %s",
-                                    frame.shape[1], frame.shape[0], source_label)
-                    else:
-                        sample = camera.snapshot()
-                        frame = sample.data  # numpy BGR
-                        timestamp = sample.timestamp
-                        source_name = args.stream
-
-                # Run inference, timed as plugin.duration.inference (nanoseconds).
-                with plugin.timeit("plugin.duration.inference"):
-                    detections = detector.detect(frame, target_classes)
-
-                # Aggregate counts per class
-                counts: dict[str, int] = {}
-                for det in detections:
-                    counts[det["class"]] = counts.get(det["class"], 0) + 1
-
-                # Publish per-class counts
-                for cls_name, count in counts.items():
-                    # Sanitize class name for pywaggle topic (a-z0-9_ only)
-                    safe_name = cls_name.replace(" ", "_").replace("-", "_")
-                    topic = f"env.count.{safe_name}"
-                    plugin.publish(
-                        topic, count,
-                        timestamp=timestamp,
-                        meta={"camera": source_name, "model": args.model},
-                    )
-                    logger.info("Published %s = %d", topic, count)
-
-                # Build a self-describing classes summary for the total record.
-                # Format: "bottle:2,person:1" — all classes and counts in one field
-                # so you can read a single record without cross-referencing.
-                classes_summary = ",".join(
-                    f"{c}:{n}" for c, n in sorted(counts.items())
-                )
-                total = sum(counts.values())
-
-                # Publish total (includes full class breakdown in meta)
-                plugin.publish(
-                    "env.count.total",
-                    total,
-                    timestamp=timestamp,
-                    meta={
-                        "camera": source_name,
-                        "model": args.model,
-                        "classes": classes_summary if classes_summary else "none",
-                        "num_classes": str(len(counts)),
-                    },
-                )
-
-                # SAVE (selective): decide whether to upload the annotated frame.
-                # - With --save-match rules: upload only when a detection matches
-                #   a rule (any rule x any detection). This is the new behavior.
-                # - Without rules: fall back to legacy --upload-image Y (upload
-                #   every cycle that has detections).
-                if save_rules:
-                    do_upload = should_save(save_rules, detections, name_keys=["class"])
+                if is_cache:
+                    _process_cache_wake(plugin, detector, args, target_classes,
+                                        save_rules, seen, last_wake_ts_ns,
+                                        select_every_s)
+                    last_wake_ts_ns = time.time_ns()
+                elif is_image_dir:
+                    if not _process_image_dir(plugin, detector, args, target_classes,
+                                              save_rules, img_iter):
+                        break
                 else:
-                    do_upload = args.upload_image == "Y" and bool(detections)
-
-                if do_upload and detections:
-                    annotated = draw_boxes(frame, detections)
-                    stem = os.path.splitext(source_name)[0]
-                    tmp_path = os.path.join(tempfile.gettempdir(),
-                                            f"{stem}-annotated.jpg")
-                    cv2.imwrite(tmp_path, annotated)
-                    top = max(detections, key=lambda d: d["confidence"])
-                    plugin.upload_file(tmp_path, timestamp=timestamp,
-                                       meta={"camera": source_name,
-                                             "detections": str(len(detections)),
-                                             "top_class": str(top["class"]),
-                                             "confidence": str(top["confidence"])})
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-                    why = "save-match matched" if save_rules else "legacy upload"
-                    logger.info("Uploaded annotated image (%d detections, %s)",
-                                len(detections), why)
-
-                if not detections:
-                    logger.info("No detections this cycle")
-
+                    _process_live(plugin, detector, args, target_classes, save_rules)
             except Exception:
-                logger.exception("Inference error")
+                logger.exception("wake error")
 
-            if args.continuous != "Y" and not using_image_dir:
+            if every_s == 0 and not is_image_dir:
                 break
-            # Bounded-window self-exit: stop before sleeping if the next cycle
-            # would start at/after the deadline.
-            if deadline is not None and time.monotonic() + args.interval >= deadline:
+            if deadline is not None and time.monotonic() + every_s >= deadline:
                 logger.info("Max runtime reached — self-exiting to free the GPU")
                 break
-            if not using_image_dir:
-                time.sleep(args.interval)
+            if not is_image_dir:
+                time.sleep(every_s)
+
+
+def _publish_detections(plugin, args, detections, *, timestamp, camera, identity=None):
+    """Publish per-class counts + total, frame-anchored (observation_ts=capture_ts,
+    vsn/gps from identity when available). Shared by all sources."""
+    counts = {}
+    for det in detections:
+        counts[det["class"]] = counts.get(det["class"], 0) + 1
+
+    base_meta = {"camera": camera, "model": args.model}
+    if identity is not None:
+        if identity.vsn:
+            base_meta["vsn"] = identity.vsn
+        if identity.node_id:
+            base_meta["node_id"] = identity.node_id
+        if identity.has_location:            # never fabricated
+            base_meta["lat"] = str(identity.lat)
+            base_meta["lon"] = str(identity.lon)
+            base_meta["location_source"] = identity.location_source
+
+    for cls_name, count in counts.items():
+        safe = cls_name.replace(" ", "_").replace("-", "_")
+        plugin.publish("env.count.%s" % safe, count, timestamp=timestamp,
+                       meta=dict(base_meta))
+        logger.info("Published env.count.%s = %d", safe, count)
+
+    classes_summary = ",".join("%s:%d" % (c, n) for c, n in sorted(counts.items()))
+    total_meta = dict(base_meta)
+    total_meta["classes"] = classes_summary or "none"
+    total_meta["num_classes"] = str(len(counts))
+    plugin.publish("env.count.total", sum(counts.values()), timestamp=timestamp,
+                   meta=total_meta)
+    return counts
+
+
+def _maybe_upload(plugin, args, detections, frame, *, timestamp, camera, save_rules):
+    """Upload the annotated frame per --save-match / legacy --upload-image."""
+    if save_rules:
+        do_upload = should_save(save_rules, detections, name_keys=["class"])
+    else:
+        do_upload = args.upload_image == "Y" and bool(detections)
+    if not (do_upload and detections):
+        return
+    annotated = draw_boxes(frame, detections)
+    tmp_path = os.path.join(tempfile.gettempdir(), "%s-annotated.jpg" % camera)
+    cv2.imwrite(tmp_path, annotated)
+    top = max(detections, key=lambda d: d["confidence"])
+    plugin.upload_file(tmp_path, timestamp=timestamp,
+                       meta={"camera": camera, "detections": str(len(detections)),
+                             "top_class": str(top["class"]),
+                             "confidence": str(top["confidence"])})
+    if os.path.exists(tmp_path):
+        os.unlink(tmp_path)
+    logger.info("Uploaded annotated image (%d detections)", len(detections))
+
+
+def _process_cache_wake(plugin, detector, args, target_classes, save_rules, seen,
+                        last_wake_ts_ns, select_every_s):
+    """One cache wake: scan -> select -> per frame read metadata + identity, infer,
+    publish frame-anchored, mark seen (8.5)."""
+    frames = consumer.scan_frames(args.input)
+    selected = selection.select_frames(
+        frames, last_wake_ts_ns=last_wake_ts_ns,
+        select_every_ns=select_every_s * 1_000_000_000,
+        all_unseen=args.all_unseen, max_frames=args.max_frames,
+        seen=seen, reprocess=args.reprocess,
+        uid_of=_frame_uid)
+    if not selected:
+        logger.info("cache wake: 0 frames to process")
+        return
+    node_info = consumer.get_node_info()
+    for frame in selected:
+        meta = consumer.read_frame_metadata(frame)
+        identity = consumer.resolve_identity(meta, node_info=node_info)
+        img = cv2.imread(frame.path)
+        if img is None:                      # evicted between select and read (8.6)
+            logger.warning("frame vanished before read: %s", frame.name)
+            continue
+        with plugin.timeit("plugin.duration.inference"):
+            detections = detector.detect(img, target_classes)
+        ts = meta.capture_ts_ns              # observation time = capture time (7)
+        cam = meta.camera or frame.camera
+        _publish_detections(plugin, args, detections, timestamp=ts, camera=cam,
+                            identity=identity)
+        _maybe_upload(plugin, args, detections, img, timestamp=ts, camera=cam,
+                      save_rules=save_rules)
+        if meta.unique_id:
+            seen.mark(meta.unique_id)
+        if not detections:
+            logger.info("no detections: %s", frame.name)
+
+
+def _frame_uid(frame):
+    """unique_id for dedup: the frame's metadata SHA256 (falls back to name)."""
+    meta = consumer.read_frame_metadata(frame)
+    return meta.unique_id or frame.name
+
+
+def _process_image_dir(plugin, detector, args, target_classes, save_rules, img_iter):
+    """One image from the local test directory. Returns False when exhausted."""
+    with plugin.timeit("plugin.duration.input"):
+        try:
+            img_path, frame, timestamp = next(img_iter)
+        except StopIteration:
+            logger.info("All test images processed")
+            return False
+    camera = os.path.splitext(os.path.basename(img_path))[0]
+    with plugin.timeit("plugin.duration.inference"):
+        detections = detector.detect(frame, target_classes)
+    _publish_detections(plugin, args, detections, timestamp=timestamp, camera=camera)
+    _maybe_upload(plugin, args, detections, frame, timestamp=timestamp,
+                  camera=camera, save_rules=save_rules)
+    if not detections:
+        logger.info("No detections: %s", os.path.basename(img_path))
+    return True
+
+
+def _process_live(plugin, detector, args, target_classes, save_rules):
+    """One live frame (stream or snapshot standalone fallback)."""
+    with plugin.timeit("plugin.duration.input"):
+        if args.source == "snapshot":
+            frame = fetch_snapshot(args.input)
+            camera = "http-snapshot"
+        else:
+            frame = Camera(args.input).snapshot().data
+            camera = args.input
+    timestamp = time.time_ns()
+    with plugin.timeit("plugin.duration.inference"):
+        detections = detector.detect(frame, target_classes)
+    _publish_detections(plugin, args, detections, timestamp=timestamp, camera=camera)
+    _maybe_upload(plugin, args, detections, frame, timestamp=timestamp,
+                  camera=camera, save_rules=save_rules)
 
 
 if __name__ == "__main__":

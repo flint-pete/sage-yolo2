@@ -40,6 +40,10 @@ RUN pip uninstall -y opencv-python opencv-python-headless 2>/dev/null; \
 RUN python3 -c "from ultralytics import YOLO; YOLO('yolo11x.pt')"
 
 COPY save_match.py .
+COPY consumer.py .
+COPY selection.py .
+COPY seenstore.py .
+COPY node_info.py .
 COPY app.py .
 
 ENTRYPOINT ["python3", "/app/app.py"]

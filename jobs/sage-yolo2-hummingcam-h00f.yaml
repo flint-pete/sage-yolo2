@@ -1,0 +1,77 @@
+# ──────────────────────────────────────────────────────────────
+# sage-yolo2 — CACHE CONSUMER exemplar (H00F)
+#
+# The v2 architecture: image-sampler2 (PRODUCER) opens the camera ONCE and writes
+# frames into the shared on-node cache (/local-cache, from wes-local-cache-manager);
+# sage-yolo2 (CONSUMER) reads those frames and runs YOLO — it NEVER opens a camera.
+# One camera open, one decode, many possible consumers.
+#
+#   image-sampler2  --cache-name hummingcam --camera top   -> /local-cache/hummingcam/top/
+#   sage-yolo2      --source cache --input /local-cache/hummingcam/top
+#
+# Both pods mount the same host cache dir. sage-yolo2 fails fast if the mount is
+# absent (no wes-local-cache-manager, or no volume) rather than silently do nothing.
+#
+# Frames are self-describing (EXIF + UserComment JSON): sage-yolo2 publishes each
+# detection frame-anchored — observation_ts = capture time, plus vsn/gps from the
+# frame — and remembers what it has processed in a durable seen-store under the
+# cache's reserved .state area, so a re-scan never re-infers old frames.
+#
+# Image: ECR app beckman/sage-yolo2:2.0.0  (build+push via ECR Register-and-Build)
+#
+# Submit (write-scoped token):
+#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/sage-yolo2-hummingcam-h00f.yaml
+#   sesctl ... submit -j <returned-id>
+# ──────────────────────────────────────────────────────────────
+name: sage-yolo2-hummingcam
+plugins:
+  # PRODUCER: one camera open, frames -> /local-cache/hummingcam/top
+  - name: image-sampler2
+    pluginSpec:
+      image: registry.sagecontinuum.org/beckman/image-sampler2:latest
+      args:
+        - "--stream"
+        - "top_camera"
+        - "--cache-name"
+        - "hummingcam"
+        - "--camera"
+        - "top"
+        - "--interval"
+        - "5"
+      selector:
+        resource.gpu: "true"
+  # CONSUMER: reads the cache, runs YOLO11x, NO camera. Continuous, newest frame,
+  # ~every 5s, self-exits after 10 min to share the GPU.
+  - name: sage-yolo2
+    pluginSpec:
+      image: registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0
+      args:
+        - "--source"
+        - "cache"
+        - "--input"
+        - "/local-cache/hummingcam/top"
+        - "--every"
+        - "5s"
+        - "--select-every"
+        - "0"
+        - "--max-frames"
+        - "1"
+        - "--max-runtime"
+        - "600"
+        - "--model"
+        - "yolo11x.pt"
+        - "--conf-thres"
+        - "0.25"
+        - "--classes"
+        - "bird"
+        - "--save-match"
+        - "bird:0.5"
+      selector:
+        resource.gpu: "true"
+nodes:
+  H00F: true
+scienceRules:
+  - "schedule(sage-yolo2): cronjob('sage-yolo2', '*/10 * * * *')"
+  - "schedule(image-sampler2): cronjob('image-sampler2', '*/10 * * * *')"
+successcriteria:
+  - WallClock('30day')

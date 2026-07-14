@@ -2,6 +2,63 @@
 
 All notable changes to the `yolo-object-counter` Sage plugin.
 
+## 2.0.0 — 2026-07-13
+
+The v2 rewrite: sage-yolo2 stops opening its own camera and becomes a **pywaggle2
+cache consumer**. Instead of being its own producer (N analysis plugins = N camera
+opens = N decode paths), it consumes self-describing frames that `image-sampler2`
+wrote into the shared WES `/local-cache`. One camera open, one decode, many
+consumers. Full design in `V2-Design.md`.
+
+### Changed
+- **Re-architected from a standalone camera-opener into a cache consumer.** The
+  production path (`--source cache`) reads committed `-v2-` frames from a per-stream
+  cache dir (`<root>/<cache-name>/<camera>`) provided by `wes-local-cache-manager`;
+  it does not touch the camera. The old self-sourcing modes are kept as standalone
+  fallbacks (`stream`, `snapshot`) plus a local-test mode (`image-dir`), but cache is
+  the intended production input. YOLO11x model, class counting, publish topics, and
+  the annotate+upload path are unchanged.
+
+### Added
+- **New `--source`/`--input` CLI (BREAKING CHANGE from v1 flags).** Acquisition is now
+  an explicit, mutually-exclusive `--source {cache,stream,snapshot,image-dir}` plus a
+  single `--input` whose meaning depends on the source (cache dir | camera name/RTSP |
+  HTTP snapshot URL | test-image dir). This replaces v1's `--stream` /
+  `--snapshot-url` / `--image-dir`. Consumer timing is now two orthogonal clocks —
+  `--every` (wake cadence; `0` = single-shot) and `--select-every` (capture-time
+  sampling stride; `0` = newest) — replacing v1's capture-oriented `--interval`.
+- **Frame-anchored metadata.** A published detection's observation time is
+  `observation_ts = capture_ts` — when the photo was TAKEN, read from the frame — not
+  when YOLO ran. Detections inherit the frame's `unique_id` and, in cache mode, its
+  `vsn`/`node_id`/GPS, so a count is traceable to the exact source frame.
+- **Node identity via a vendored `get_node_info()`, with frame cross-check.** The
+  pod's WES-injected identity is read via a vendored pywaggle2 reader and cross-checked
+  against the frame's own captured identity; attribution prefers the frame's (it's what
+  the pixels correspond to), warns on a `vsn` mismatch (stale/mislabeled cache), and
+  falls back to the pod's only for fields the frame lacks.
+- **GPS from the authoritative UserComment JSON.** Geolocation is read from the frame's
+  `UserComment` JSON as plain signed decimal floats (the source of truth). Standard GPS
+  EXIF (abs-value + N/S/E/W ref) is treated as the tool-friendly convenience view for
+  image browsers / mapping tools. Location is never fabricated — omitted when unknown.
+- **Durable seen-store dedup.** Keyed on `unique_id` (SHA256 of the original frame
+  bytes); a newline-delimited, append-only, prune-by-rewrite store living in the cache's
+  reserved, never-evicted `.state` area at a composite path
+  (`<root>/.state/<plugin>/<consumer-id>/<cache-name>/<camera>/seen`) so it survives pod
+  restarts and two instances never clobber each other. `--consumer-id` controls instance
+  identity (share it to cooperatively divide one cache); `--seen-store` overrides the
+  path; `--reprocess` ignores memory while still recording.
+- **Batching / selection controls.** `--every` (wake cadence), `--select-every`
+  (capture-time stride), `--max-frames` (per-wake cap; K-newest with stride `0`), and
+  `--all-unseen` (backlog mode — drain every not-yet-seen frame, capped per wake).
+
+### Migration
+- Replace v1 acquisition flags with the new pair: `--stream X` → `--source stream
+  --input X`; `--snapshot-url U` → `--source snapshot --input U`; `--image-dir D` →
+  `--source image-dir --input D`. The new production path is `--source cache --input
+  <root>/<cache-name>/<camera>`. Replace `--interval N` with `--every` (wake cadence)
+  and/or `--select-every` (sampling stride). Cache mode requires the `/local-cache`
+  mount from `wes-local-cache-manager` and fails fast if it is absent.
+
 ## 0.3.1 — 2026-07-10
 
 ### Added

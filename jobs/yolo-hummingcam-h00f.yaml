@@ -36,11 +36,13 @@
 # ──────────────────────────────────────────────────────────────
 name: yolo-hummingcam
 plugins:
-  - name: yolo-object-counter
+  - name: sage-yolo2
     pluginSpec:
-      image: registry.sagecontinuum.org/beckman/yolo-object-counter:0.3.1
+      image: registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0
       args:
-        - "--snapshot-url"
+        - "--source"
+        - "snapshot"
+        - "--input"
         - "http://10.107.0.221:10000/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snap&user=sage&password=REPLACE_ME&width=640&height=360"
         - "--model"
         - "yolo11x.pt"
@@ -48,17 +50,14 @@ plugins:
         - "0.25"
         - "--classes"
         - "person,bird,fork"
-        - "--continuous"
-        - "Y"
-        - "--interval"
-        - "15"
+        - "--every"
+        - "15s"
         - "--max-runtime"
         - "600"
         - "--save-match"
         # Save the annotated frame for ANY of the counted classes at >=0.25
-        # (matches the conf floor — every cycle with a real detection is saved,
-        # same effect as the old --upload-image Y). To save only the interesting
-        # subjects, narrow to e.g. "bird:0.4,fork:0.4".
+        # (matches the conf floor — every cycle with a real detection is saved).
+        # To save only the interesting subjects, narrow to e.g. "bird:0.4,fork:0.4".
         - "*:0.25"
       selector:
         resource.gpu: "true"
@@ -67,6 +66,6 @@ nodes:
 scienceRules:
   # Start the 10-min window at the top of every hour (:00). The plugin's
   # --max-runtime 600 self-exits ~:10, freeing the GPU for the rest of the hour.
-  - "schedule(yolo-object-counter): cronjob('yolo-hummingcam-window', '0 * * * *')"
+  - "schedule(sage-yolo2): cronjob('yolo-hummingcam-window', '0 * * * *')"
 successcriteria:
   - WallClock('30day')
