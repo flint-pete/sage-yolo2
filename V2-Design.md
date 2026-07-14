@@ -504,9 +504,12 @@ image-sampler2 was built. Code lives in `app.py` + new small modules; keep KISS/
   mismatch → warn + prefer filename ts. Docs: state the EXIF-is-tool-view /
   JSON-is-authoritative GPS split. Gate: tests asserting the published record inherits
   frame metadata; mismatch-warning path; no-GPS path; signed-lat/lon round-trip.
-- **Stage 3 — node identity (§2.2).** Vendor `node_info_env.py` (byte-identical to
-  pywaggle2-nodeinfo; note sync); wire `get_node_info()`, cross-check vs frame. Gate:
-  identity attribution + never-fabricate-location tests.
+- **Stage 3 — node identity (§2.2).** Vendor the pywaggle2 reader at REPO ROOT as
+  `node_info.py` (content byte-identical to pywaggle2-nodeinfo; VENDORED.md notes the
+  sync obligation) — NOT under `waggle/`, which would shadow installed pywaggle and
+  break `from waggle.plugin import Plugin` (same collision image-sampler2 avoided via
+  `nodemeta.py`). Wire `get_node_info()`, cross-check vs frame. Gate: identity
+  attribution + never-fabricate-location tests.
 - **Stage 4 — seen-memory (§8.4).** Seen-store read/add/prune keyed on unique_id;
   `--reprocess`. Gate: dedup across wakes, corrupt/missing store tolerated, prune
   horizon.
