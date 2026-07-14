@@ -107,14 +107,18 @@ crop-production works in test and standalone modes too.
 - **Stage 1 — v2 cache-writer available to yolo2** (shared module or vendored
   copy per the OPEN decision). Unit tests: v2-name build/parse, EXIF/UserComment
   round-trip, ring eviction by count+MB.
-- **Stage 2 — crop logic** (`--crop-match`, `--crop-padding`, per-detection crop,
-  ring-write to crop stream) wired into all three source paths. Unit tests: crop
-  geometry + clamping, multi-detection -> N crops, metadata correctness,
-  off-by-default no-op.
-- **Stage 3 — `env.crop.count` publish + `source_*` provenance metadata.**
-- **Stage 4 — offline e2e:** a test image with 2 birds -> assert 2 valid v2 crops
-  land in a temp cache and are readable by the SAME `consumer.read_frame_metadata`
-  that BioCLIP uses.
+- **Stage 2 — crop logic** (`--crop-match`, `--crop-padding`, `--crop-min-px`,
+  per-detection crop, ring-write to crop stream) wired into all three source
+  paths. DONE (commit cf70c3d). Unit tests: crop geometry + clamping,
+  multi-detection -> N crops, metadata correctness, off-by-default no-op.
+- **Stage 3 — `env.crop.count` publish + `source_*` provenance metadata.** DONE
+  (folded into Stage 2: env.crop.count publishes frame-anchored; the nested
+  `source{}` blob carries source_class/confidence/bbox/unique_id + detection_index).
+- **Stage 4 — offline e2e.** DONE. tests/test_crop_e2e.py: a 2-bird frame ->
+  the real crop path -> this test acts as the DOWNSTREAM CONSUMER (BioCLIP's
+  role), scanning each crop stream and reading each crop back with the SAME
+  consumer API (scan_frames + read_frame_metadata). Asserts 2 crops, correct
+  crop PIXELS/geometry, capture_ts inheritance, and full source_* provenance.
 - **Stage 5 — on-node e2e (H00F):** live hummingcam -> yolo2 crops -> a REAL
   BioCLIP consumer classifies each crop -> species records in the data API. Full
   cascade verified end-to-end (data-API proof, not just logs).
