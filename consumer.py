@@ -282,3 +282,89 @@ def read_frame_metadata(frame):
         acquisition_path=payload.get("acquisition_path"),
         raw=payload,
     )
+
+
+# ── node identity + cross-check (Stage 3) ────────────────────────────
+# sage-yolo2 has TWO identity views:
+#   * the FRAME's captured identity (FrameMeta from the UserComment JSON) -- what the
+#     pixels actually correspond to; AUTHORITATIVE for attribution (V2-Design §7.1.3).
+#   * the POD's own identity via get_node_info() (the WES-injected WAGGLE_NODE_* env,
+#     read by the vendored pywaggle2 reader) -- the node sage-yolo2 is running on.
+# On a correctly-configured node these agree. We attribute with the frame's identity,
+# cross-check against the pod's, warn on a vsn mismatch (stale/mislabeled cache), and
+# fall back to the pod identity only for fields the frame lacks. Location is NEVER
+# fabricated: if neither frame nor pod has a fix, the record simply has no location.
+
+
+class Identity:
+    """Resolved attribution for a published detection. lat/lon are signed floats or
+    None (never fabricated). ``source`` records where the location came from."""
+
+    __slots__ = ("vsn", "node_id", "lat", "lon", "location_source")
+
+    def __init__(self, vsn=None, node_id=None, lat=None, lon=None,
+                 location_source=None):
+        self.vsn = vsn
+        self.node_id = node_id
+        self.lat = lat
+        self.lon = lon
+        self.location_source = location_source   # "frame" | "node" | None
+
+    @property
+    def has_location(self):
+        return self.lat is not None and self.lon is not None
+
+    def __repr__(self):  # pragma: no cover - debug aid
+        return "Identity(vsn=%r, node_id=%r, loc=%r via %r)" % (
+            self.vsn, self.node_id,
+            (self.lat, self.lon) if self.has_location else None,
+            self.location_source)
+
+
+def get_node_info():
+    """The pod's own WES-injected identity via the vendored pywaggle2 reader.
+
+    Returns a NodeInfo (sentinel-normalized) or None if the reader is unavailable.
+    Fail-soft: a missing reader must not stop inference.
+    """
+    try:
+        from node_info import read_node_info
+    except ImportError:                       # pragma: no cover - vendored in-repo
+        logger.warning("node_info reader unavailable; no pod identity")
+        return None
+    return read_node_info()
+
+
+def resolve_identity(frame_meta, node_info=None):
+    """Combine the frame's captured identity with the pod's, per V2-Design §2.2/§7.1.3.
+
+    * vsn/node_id: prefer the FRAME's (authoritative -- it's what the pixels are);
+      fall back to the pod's when the frame lacks them.
+    * vsn cross-check: if BOTH have a vsn and they differ, WARN (stale/mislabeled
+      cache) -- but still attribute with the frame's.
+    * location: prefer the frame's GPS; if absent, fall back to the pod's; if neither,
+      leave it unset -- NEVER fabricated. Record which source was used.
+    """
+    if node_info is None:
+        node_info = get_node_info()
+    n_vsn = getattr(node_info, "vsn", None)
+    n_nid = getattr(node_info, "node_id", None)
+    n_lat = getattr(node_info, "lat", None)
+    n_lon = getattr(node_info, "lon", None)
+
+    if frame_meta.vsn and n_vsn and frame_meta.vsn != n_vsn:
+        logger.warning(
+            "vsn mismatch: frame=%s node=%s -- attributing with the frame's "
+            "(cache may be stale or mislabeled)", frame_meta.vsn, n_vsn)
+
+    vsn = frame_meta.vsn or n_vsn
+    node_id = frame_meta.node_id or n_nid
+
+    if frame_meta.has_location:
+        lat, lon, src = frame_meta.lat, frame_meta.lon, "frame"
+    elif n_lat is not None and n_lon is not None:
+        lat, lon, src = n_lat, n_lon, "node"
+    else:
+        lat, lon, src = None, None, None       # never fabricated
+
+    return Identity(vsn=vsn, node_id=node_id, lat=lat, lon=lon, location_source=src)
