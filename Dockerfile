@@ -44,6 +44,7 @@ COPY consumer.py .
 COPY selection.py .
 COPY seenstore.py .
 COPY node_info.py .
+COPY crop_writer.py .
 COPY app.py .
 
 ENTRYPOINT ["python3", "/app/app.py"]

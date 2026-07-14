@@ -2,6 +2,38 @@
 
 All notable changes to the `sage-yolo2` Sage plugin.
 
+## 2.1.0 — 2026-07-14
+
+Additive, off-by-default **crop-producer** extension: sage-yolo2 gains a producer
+role. When a detection matches a rule, it crops the bounding box and writes that
+crop as a v2 frame into a new cache stream, so a downstream classifier (e.g.
+BioCLIP) can consume each detected object for species-level ID — a detect→classify
+cascade mediated entirely by the shared cache, with no cross-plugin triggering
+code. The validated 2.0.0 count/upload path is untouched when the feature is off.
+See `CROP-PRODUCER-Design.md`.
+
+### Added
+- **`crop_writer.py`** — vendored v2 cache-writer (WRITE side of the contract:
+  EXIF/UserComment embed + per-stream bounded ring with evict-on-either-cap and
+  atomic tmp→replace), from image-sampler2's `metadata.py` + `cache.py`. Kept
+  compatible with sage-yolo2's own `consumer.py` reader. Registered in VENDORED.md.
+- **Crop flags** (all OFF by default): `--crop-match` (Class:confidence rules,
+  same grammar as `--save-match`), `--crop-padding` (0.15), `--crop-min-px` (32),
+  `--crop-cache-name` (`<job>-crops`), `--crop-max-count` (500), `--crop-max-mb`
+  (500). Surfaced in `sage.yaml` inputs.
+- **`_maybe_produce_crops`** wired into all three source paths (cache/image-dir/
+  live): pad+clamp bbox, min-px floor, per-detection crop → `<camera>-crop-<idx>`
+  stream, with a nested `source{}` provenance blob (source_class/confidence/bbox/
+  unique_id + detection_index) inheriting the parent capture_ts. Fail-soft per crop.
+- **`env.crop.count`** measurement (frame-anchored); `env.crop.*` added to the
+  sage.yaml ontology.
+- **`piexif`** added to `requirements.txt` (crop_writer dependency).
+- **Tests**: `tests/test_crop_writer.py` (14 — v2-name, embed round-trip,
+  crop-readable-by-consumer, provenance, ring eviction/E3), `tests/test_app_crops.py`
+  (7 — geometry/clamp, off-by-default no-op, N-crops, match filtering, min-px),
+  `tests/test_crop_e2e.py` (2 — offline detect→crop→consume with pixel/geometry +
+  provenance proof). Full suite: **141 passed**.
+
 ## Unreleased — 2026-07-14
 
 Repo-metadata and documentation sync after the on-node verification (no plugin

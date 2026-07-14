@@ -1,7 +1,7 @@
 name: "sage-yolo2"
 namespace: "beckman"
-version: "2.0.0"
-description: "YOLO11x object counter, re-architected as a pywaggle2 cache consumer — reads frames a producer (image-sampler2) wrote to the shared on-node cache, runs YOLO11x, publishes per-class counts frame-anchored (observation time = capture time), and optionally uploads annotated images. Standalone stream/snapshot fallbacks for stock nodes."
+version: "2.1.0"
+description: "YOLO11x object counter + crop-producer, re-architected as a pywaggle2 cache consumer — reads frames a producer (image-sampler2) wrote to the shared on-node cache, runs YOLO11x, publishes per-class counts frame-anchored (observation time = capture time), and optionally uploads annotated images. Optionally (off by default) crops matching detections and writes them as v2 frames into a crop cache stream for a downstream classifier (e.g. BioCLIP) — a detect→classify cascade mediated by the shared cache. Standalone stream/snapshot fallbacks for stock nodes."
 authors: "Pete Beckman"
 collaborators: "Sage Team"
 funding: "NSF 2436842"
@@ -79,12 +79,30 @@ inputs:
     - id: "save-match"
       type: "string"
       description: "Controls image SAVING. OR-list of Class:confidence rules, e.g. 'bird:0.5,cat:0.6', or '*:0.5' for any detection. Frame uploaded if any detection matches any rule."
+    - id: "crop-match"
+      type: "string"
+      description: "Crop-producer (OFF by default). OR-list of Class:confidence rules (same grammar as save-match). For EACH matching detection, crop its bbox and write it as a v2 frame into a <camera>-crop cache stream for a downstream classifier (e.g. BioCLIP). Empty = crop production off."
+    - id: "crop-padding"
+      type: "float"
+      description: "Fraction of bbox size to pad each crop on all sides, clamped to image bounds (default: 0.15). Classifiers do better with a little context than a tight box."
+    - id: "crop-min-px"
+      type: "int"
+      description: "Skip crops whose short side (after padding+clamp) is below this many pixels (default: 32). A tiny box is useless to a classifier — skip rather than upscale."
+    - id: "crop-cache-name"
+      type: "string"
+      description: "Cache name for the crop ring under the shared cache root (default: <job>-crops)."
+    - id: "crop-max-count"
+      type: "int"
+      description: "Max crops per stream ring; oldest evicted (default: 500). Size for the classifier's consume cadence."
+    - id: "crop-max-mb"
+      type: "float"
+      description: "Max MB (decimal 10^6) per crop stream ring (default: 500)."
 resources:
     - type: "RGB_image_producer"
       view: "street"
       min_resolution: "640x480"
 metadata:
-    ontology: env.count.*
+    ontology: env.count.*, env.crop.*
 testing:
     mask_entrypoint: true
     command: ["python3", "-m", "pytest", "-q", "tests/"]

@@ -84,6 +84,12 @@ argument to whichever `--source` was chosen.
 | `--agnostic-nms` | Class-agnostic NMS. |
 | `--upload-image {Y,N}` | `Y` = allow annotated-image uploads, `N` = never. Governed by `--save-match` when set. Default `Y`. |
 | `--save-match <rules>` | OR-list of `Class:confidence` rules (e.g. `bird:0.5`) or `*:0.5`. Upload the annotated frame when ANY detection matches ANY rule. |
+| `--crop-match <rules>` | **Crop-producer (OFF by default).** Same grammar as `--save-match`. For EACH matching detection, crop its bbox and write it as a v2 frame into a `<camera>-crop` cache stream for a downstream classifier. Empty = off. |
+| `--crop-padding <float>` | Fraction of bbox size to pad each crop on all sides (clamped to image). Default `0.15`. |
+| `--crop-min-px <int>` | Skip crops whose short side (after padding+clamp) is below this many px — skip, don't upscale. Default `32`. |
+| `--crop-cache-name <name>` | Cache name for the crop ring under the shared cache root. Default `<job>-crops`. |
+| `--crop-max-count <int>` | Max crops per stream ring; oldest evicted. Default `500`. |
+| `--crop-max-mb <float>` | Max MB (decimal 10⁶) per crop stream ring. Default `500`. |
 
 ---
 
@@ -109,6 +115,7 @@ that have no producer/cache provisioned.
 |---|---|---|
 | `env.count.<class_name>` | int | One record per detected COCO class (class name sanitized: spaces/hyphens → `_`). |
 | `env.count.total` | int | Total detections across all classes; also the empty-scene heartbeat (value `0`). |
+| `env.crop.count` | int | Crops produced from a frame (only when `--crop-match` is set and ≥1 crop was written). Frame-anchored. Meta: `camera`, `cache_name`. |
 
 **Meta on every record**
 
@@ -134,6 +141,52 @@ existed, not when it was analyzed.
 **Uploads.** When enabled (see `--upload-image` / `--save-match`), sage-yolo2 uploads the
 annotated JPEG (bounding boxes + labels) with meta `camera`, `detections`, `top_class`,
 `confidence`.
+
+---
+
+## 5b. Crop-producer (detect→classify cascade, off by default)
+
+With `--crop-match`, sage-yolo2 also acts as a **producer**: for each detection matching
+the rule it crops the bounding box and writes that crop as a new `-v2-` frame into a
+**crop cache stream**, so a downstream classifier (e.g. BioCLIP) can consume each detected
+object for species-level ID — a detect→classify cascade mediated entirely by the shared
+cache, with **no cross-plugin triggering code**. When `--crop-match` is empty (default),
+none of this runs; the count/upload path is unchanged.
+
+```
+image-sampler2        sage-yolo2 (count + CROP-PRODUCE)         classifier (e.g. BioCLIP)
+ camera → cache   →   read frame, YOLO detect, count/publish  →  read each crop, classify
+ <cam> stream         for each --crop-match detection:             + annotate/upload
+                        crop bbox → write v2 frame
+                        into <cam>-crop-<idx> stream  ─────────────→
+```
+
+- **Where crops go:** `<cache-root>/<crop-cache-name>/<camera>-crop-<idx>/` (own bounded
+  ring per detection index, so N objects in one frame → N distinct streams/entries).
+- **Frame-anchored:** each crop inherits the **parent frame's `capture_ts`**, so a species
+  result traces back to when the photo was taken.
+- **Provenance:** each crop's `UserComment` JSON carries a nested `source` object —
+  `source_class`, `source_confidence`, `source_bbox`, `source_unique_id`,
+  `detection_index` — giving the classifier YOLO context + full traceability to the parent
+  frame and box.
+- **Geometry:** `--crop-padding` adds context around the box (clamped to the image);
+  `--crop-min-px` skips boxes too small to classify (skip, never upscale).
+- **Bounded:** `--crop-max-count` / `--crop-max-mb` cap the ring (evict-on-either, oldest
+  first). Size it so the classifier drains faster than yolo2 fills, or crops evict before
+  classification (same producer/consumer rate rule as the raw cache).
+
+Example — count birds AND feed a BioCLIP-style classifier:
+
+```bash
+python3 app.py --source cache --input /local-cache/hummingcam/top \
+  --classes bird --conf-thres 0.25 --every 10m \
+  --save-match "bird:0.4" \
+  --crop-match "bird:0.5" --crop-padding 0.15 --crop-cache-name hummingcam-crops
+```
+
+Crops are compatible with the same `consumer.read_frame_metadata` API sage-yolo2 itself
+uses, verified offline end-to-end by `tests/test_crop_e2e.py`. See
+`CROP-PRODUCER-Design.md` for the full design.
 
 ---
 
