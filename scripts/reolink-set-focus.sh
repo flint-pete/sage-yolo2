@@ -18,11 +18,11 @@
 #   ./reolink-set-focus.sh [--keep-autofocus] <camera-url> <username> <password> <focus-value>
 #
 # Example (H00F camera, RLC-811A — requires the ADMIN account):
-#   ./reolink-set-focus.sh http://10.107.0.221:10000 admin '<ADMIN_PASSWORD>' 3065
+#   ./reolink-set-focus.sh http://<CAMERA_IP>:10000 admin '<ADMIN_PASSWORD>' 3065
 #
 # Notes:
 #   - <camera-url> is the scheme+host+port only (no path), e.g.
-#     http://10.107.0.221:10000 — the script appends /cgi-bin/api.cgi.
+#     http://<CAMERA_IP>:10000 — the script appends /cgi-bin/api.cgi.
 #   - Quote the password in single quotes if it contains ! & ? etc.
 #   - Focus range is camera-specific; the script reads it live and rejects
 #     out-of-range values before touching the lens.
@@ -56,7 +56,7 @@ fi
 
 if [ "$#" -ne 4 ]; then
     echo "Usage: $0 [--keep-autofocus] <camera-url> <username> <password> <focus-value>" >&2
-    echo "  e.g. $0 http://10.107.0.221:10000 admin '<ADMIN_PASSWORD>' 3065" >&2
+    echo "  e.g. $0 http://<CAMERA_IP>:10000 admin '<ADMIN_PASSWORD>' 3065" >&2
     exit 1
 fi
 
@@ -68,7 +68,7 @@ FOCUS="$4"
 # camera-url must be scheme://host[:port] with no path
 if ! printf '%s' "$CAM_URL" | grep -qE '^https?://[^/]+$'; then
     echo "ERROR: <camera-url> must be scheme://host[:port] with no path" >&2
-    echo "       got: '$CAM_URL'  (e.g. http://10.107.0.221:10000)" >&2
+    echo "       got: '$CAM_URL'  (e.g. http://<CAMERA_IP>:10000)" >&2
     exit 1
 fi
 

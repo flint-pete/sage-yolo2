@@ -20,11 +20,11 @@
 #   Run from the repo root, ON the Thor node (needs docker + k3s + sudo):
 #
 #     scripts/deploy-sideload.sh                 # build → import → register
-#     scripts/deploy-sideload.sh --submit jobs/yolo-camera.yaml
+#     scripts/deploy-sideload.sh --submit jobs/<job>.yaml   # SES job (if the repo has jobs/)
 #     scripts/deploy-sideload.sh --version 0.3.2 # override the sage.yaml version
 #     scripts/deploy-sideload.sh --dry-run       # print the plan, run nothing
 #     scripts/deploy-sideload.sh --skip-build    # image already imported; just register
-#     scripts/deploy-sideload.sh --skip-register # catalog record already exists
+#     scripts/deploy-sideload.sh --skip-register # skip the ECR catalog step (not needed for pluginctl run)
 #     scripts/deploy-sideload.sh -h              # full help
 #
 # TOKENS (only needed for the steps that use them)
@@ -126,11 +126,13 @@ drift=0
 for j in jobs/*.yaml; do
   [ -e "$j" ] || continue
   if grep -q 'image:' "$j"; then
-    jt="$(sed -nE 's/^[[:space:]]*image:[[:space:]]*(.+)$/\1/p' "$j" | head -n1)"
-    if [ -n "$jt" ] && [ "$jt" != "$TAG" ]; then
-      warn "job $j image: $jt  ≠  $TAG"
-      drift=1
-    fi
+    # only image: lines for THIS plugin (a job may also contain e.g. a producer)
+    while IFS= read -r jt; do
+      if [ -n "$jt" ] && [ "$jt" != "$TAG" ]; then
+        warn "job $j image: $jt  ≠  $TAG"
+        drift=1
+      fi
+    done < <(sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]#]+).*$/\1/p' "$j" | grep -F "/${NAME}:" || true)
   fi
 done
 [ "$drift" -eq 1 ] && warn "Job YAML image tag(s) differ from sage.yaml version — bump them before --submit." || ok "Job YAML image tags match ${VERSION}."
@@ -208,7 +210,7 @@ if [ -n "$SUBMIT_JOB" ]; then
 
   # Guard against submitting a job whose image tag doesn't match what we deployed.
   if [ "$drift" -eq 1 ]; then
-    jt="$(sed -nE 's/^[[:space:]]*image:[[:space:]]*(.+)$/\1/p' "$SUBMIT_JOB" | head -n1)"
+    jt="$(sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]#]+).*$/\1/p' "$SUBMIT_JOB" | grep -F "/${NAME}:" | head -n1)"
     [ "$jt" = "$TAG" ] || die "refusing to submit: $SUBMIT_JOB image ($jt) ≠ deployed tag ($TAG). Fix the job's image: line first."
   fi
 
@@ -226,12 +228,19 @@ if [ -n "$SUBMIT_JOB" ]; then
     ok "submitted job ${JOB_ID}"
   fi
 else
-  say "Step 4/4 — submit skipped (no --submit). To run the job:"
-  printf '%s\n' "    scripts/deploy-sideload.sh --submit jobs/yolo-camera.yaml"
+  say "Step 4/4 — submit skipped (no --submit)."
+  if ls jobs/*.yaml >/dev/null 2>&1; then
+    printf '%s\n' "    To submit an SES job: scripts/deploy-sideload.sh --submit <jobs/file.yaml>"
+  fi
 fi
 
 echo
-ok "Done: ${TAG} is built + imported + catalog-registered${SUBMIT_JOB:+ + job submitted}."
+done_steps=()
+[ "$DO_BUILD" -eq 1 ] && done_steps+=("built + imported")
+[ "$DO_REGISTER" -eq 1 ] && done_steps+=("catalog-registered")
+[ -n "$SUBMIT_JOB" ] && done_steps+=("job submitted")
+dry=""; [ "$DRY_RUN" -eq 1 ] && dry=" [dry-run: nothing executed]"
+ok "Done: ${TAG}: ${done_steps[*]:-nothing (all steps skipped)}${dry}."
 if [ "$drift" -eq 1 ]; then
   warn "Reminder: some job YAML image tags still differ from ${VERSION}."
 fi

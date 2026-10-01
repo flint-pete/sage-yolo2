@@ -1,5 +1,9 @@
 # sage-yolo2 — Crop-Producer Extension Design (v2.1.0)
 
+> **Design record (2026-07).** Implemented in v2.1.0 and verified in the H041
+> cascade. §0–§3 explain why crops are written back into the cache; the staged
+> plan (§5) is historical. Current behaviour: [README.md](README.md) §5b.
+
 Status: **DESIGN LOCKED** (2026-07-14) — ready for staged implementation (§5).
 Additive, off-by-default extension to the LOCKED v2.0.0 consumer design
 (`V2-Design.md`). Nothing here changes the counting/consuming behavior verified

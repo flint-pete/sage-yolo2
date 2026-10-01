@@ -16,7 +16,7 @@
 # precedent as save_match.py). Kept deliberately compatible with sage-yolo2's
 # READ side (consumer.py parse_v2_name / read_frame_metadata): a frame written
 # here MUST be readable there. Any divergence in the v2 format must be mirrored
-# in both. See references sync note in DOCKER-BUILD.md.
+# in both (see VENDORED.md).
 #
 # Design invariants preserved from media-sampler3 cache.py 2.6:
 #   - per-stream ring at <root>/<cache-name>/<camera>/; caps per stream.

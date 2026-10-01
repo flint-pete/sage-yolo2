@@ -43,7 +43,7 @@ plugins:
         - "--source"
         - "snapshot"
         - "--input"
-        - "http://10.107.0.221:10000/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snap&user=sage&password=REPLACE_ME&width=640&height=360"
+        - "http://<CAMERA_IP>:10000/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snap&user=sage&password=REPLACE_ME&width=640&height=360"
         - "--model"
         - "yolo11x.pt"
         - "--conf-thres"

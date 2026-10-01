@@ -2,6 +2,34 @@
 
 All notable changes to the `sage-yolo2` Sage plugin.
 
+## Unreleased (docs only; image stays 2.1.0)
+
+### Changed
+- **Student-readiness doc pass.**
+  - README: added "Where this fits", a code map, the Thor deploy command,
+    crop-index semantics and the bioclip2 implication, counts vs crops, the
+    seen-store path and why `WAGGLE_JOB_NAME`/`WAGGLE_TASK_NAME` matter, and known
+    limitations.
+  - New short `DOCKER-BUILD.md`.
+- **History moved to `docs/history/`:**
+  - the v1 docs (`overview.md`, `THOR-TESTING.md`) and the old long
+    `DOCKER-BUILD.md`
+  - status logs (`CROP-PRODUCER-STATUS.md`, `HANDOFF.md`)
+  - the overnight deploy plan and morning-check script
+  - the v1 job YAMLs
+  - the broken v1 GPU test script
+- `jobs/sage-yolo2-camera.yaml` was rewritten as an explicitly untested SES
+  template with correct media-sampler3 flags and image 2.1.0.
+- `scripts/deploy-sideload.sh`:
+  - the drift check only compares this plugin's `image:` lines
+  - the final message reports the steps that actually ran
+  - the job hint shows only when `jobs/` exists
+- The logger name changed from `yolo-object-counter` to `sage-yolo2`.
+- The vendored `node_info.py` was re-synced to pywaggle2-nodeinfo v0.1.1 (a
+  doc-link line only).
+- Public links replaced local `sage-design-planning` paths; camera IPs were
+  scrubbed to placeholders.
+
 ## 2.1.0 — 2026-07-14
 
 Additive, off-by-default **crop-producer** extension: sage-yolo2 gains a producer

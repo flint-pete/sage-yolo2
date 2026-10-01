@@ -1,77 +1,90 @@
 # ──────────────────────────────────────────────────────────────
-# sage-yolo2 — CACHE CONSUMER exemplar (H00F)
+# sage-yolo2 — producer + consumer SES job TEMPLATE
 #
-# The v2 architecture: media-sampler3 (PRODUCER) opens the camera ONCE and writes
-# frames into the shared on-node cache (/local-cache, from wes-local-cache-manager);
-# sage-yolo2 (CONSUMER) reads those frames and runs YOLO — it NEVER opens a camera.
-# One camera open, one decode, many possible consumers.
+# STATUS: UNTESTED SES TEMPLATE. The verified way to run this cascade today is
+# `sudo pluginctl run` with side-loaded images — see the media-sampler3 install
+# guide, Steps 6b–6d:
+#   https://github.com/flint-pete/media-sampler3/blob/master/INSTALLING-MEDIA-SAMPLER3.md
+# This file shows the intended scheduled-job shape once the images are in the
+# registry. Before submitting: replace <VSN> / <CAM_IP>, add the /local-cache
+# hostPath volume mount your SES version supports (both pods must mount the
+# cache), map camera creds into the producer's env from a Secret (never args),
+# and register the ECR catalog record (scripts/deploy-sideload.sh without
+# --skip-register).
 #
-#   media-sampler3  --cache-name camera --camera top   -> /local-cache/camera/top/
+# The v2 architecture: media-sampler3 (PRODUCER) opens the camera once and writes
+# frames into the shared cache; sage-yolo2 (CONSUMER) reads them and runs YOLO —
+# it never opens a camera.
+#
+#   media-sampler3  --cache-name camera --name top   -> /local-cache/camera/top/
 #   sage-yolo2      --source cache --input /local-cache/camera/top
-#
-# Both pods mount the same host cache dir. sage-yolo2 fails fast if the mount is
-# absent (no wes-local-cache-manager, or no volume) rather than silently do nothing.
-#
-# Frames are self-describing (EXIF + UserComment JSON): sage-yolo2 publishes each
-# detection frame-anchored — observation_ts = capture time, plus vsn/gps from the
-# frame — and remembers what it has processed in a durable seen-store under the
-# cache's reserved .state area, so a re-scan never re-infers old frames.
-#
-# Image: ECR app beckman/sage-yolo2:2.0.0  (build+push via ECR Register-and-Build)
+#                   --crop-cache-name camera-crops   -> /local-cache/camera-crops/top-crop-N/
 #
 # Submit (write-scoped token):
-#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/sage-yolo2-camera.yaml
-#   sesctl ... submit -j <returned-id>
+#   scripts/deploy-sideload.sh --submit jobs/sage-yolo2-camera.yaml
 # ──────────────────────────────────────────────────────────────
 name: sage-yolo2-camera
 plugins:
   # PRODUCER: one camera open, frames -> /local-cache/camera/top
   - name: media-sampler3
     pluginSpec:
-      image: registry.sagecontinuum.org/beckman/media-sampler3:latest
+      image: registry.sagecontinuum.org/beckman/media-sampler3:0.1.0
       args:
+        - "--continuous"
+        - "10"
+        - "--media"
+        - "image"
         - "--stream"
         - "top_camera"
+        - "--name"
+        - "top"
+        - "--cache-root"
+        - "/local-cache"
         - "--cache-name"
         - "camera"
-        - "--camera"
-        - "top"
-        - "--interval"
-        - "5"
+        - "--cache-max-count"
+        - "200"
+        - "--cache-max-mb"
+        - "500"
+        - "--camera-host"
+        - "<CAM_IP>"
+        - "--camera-port"
+        - "80"
       selector:
-        resource.gpu: "true"
-  # CONSUMER: reads the cache, runs YOLO11x, NO camera. Continuous, newest frame,
-  # ~every 5s, self-exits after 10 min to share the GPU.
+        zone: core
+  # CONSUMER: reads the cache, counts birds, crops them for sage-bioclip2.
   - name: sage-yolo2
     pluginSpec:
-      image: registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0
+      image: registry.sagecontinuum.org/beckman/sage-yolo2:2.1.0
       args:
         - "--source"
         - "cache"
         - "--input"
         - "/local-cache/camera/top"
         - "--every"
-        - "5s"
-        - "--select-every"
-        - "0"
+        - "5m"
+        - "--all-unseen"
         - "--max-frames"
-        - "1"
-        - "--max-runtime"
-        - "600"
+        - "0"
         - "--model"
         - "yolo11x.pt"
         - "--conf-thres"
         - "0.25"
         - "--classes"
         - "bird"
-        - "--save-match"
-        - "bird:0.5"
+        - "--crop-match"
+        - "bird:0.4"
+        - "--crop-padding"
+        - "0.15"
+        - "--crop-cache-name"
+        - "camera-crops"
       selector:
-        resource.gpu: "true"
+        zone: core
 nodes:
-  H00F: true
+  <VSN>: true   # replace with your node VSN, e.g. H041
 scienceRules:
-  - "schedule(sage-yolo2): cronjob('sage-yolo2', '*/10 * * * *')"
-  - "schedule(media-sampler3): cronjob('media-sampler3', '*/10 * * * *')"
+  # Both loop forever; start them once.
+  - "schedule(media-sampler3): cronjob('media-sampler3', '@reboot')"
+  - "schedule(sage-yolo2): cronjob('sage-yolo2', '@reboot')"
 successcriteria:
   - WallClock('30day')

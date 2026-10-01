@@ -38,7 +38,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-logger = logging.getLogger("yolo-object-counter")
+logger = logging.getLogger("sage-yolo2")
 
 
 # ── detector ────────────────────────────────────────────────────────

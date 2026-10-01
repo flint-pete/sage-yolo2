@@ -1,5 +1,12 @@
 # sage-yolo2 — V2 Design
 
+> **Design record (2026-07).** This is the design that produced v2.0.0; it is kept
+> because it explains *why* the consumer works the way it does (§7 metadata
+> authority, §8 wake/seen semantics, §10 CLI are still accurate). Staged-plan and
+> "decision needed" language is historical. Current behaviour: [README.md](README.md).
+> How the whole stack fits together:
+> [media-sampler3 HOW-IT-WORKS](https://github.com/flint-pete/media-sampler3/blob/master/docs/HOW-IT-WORKS.md).
+
 Status: DESIGN LOCKED (reviewed 2026-07-13) — ready for staged implementation (§9).
 This document maps how to evolve **sage-yolo2** from the standalone sage-yolo (v0.3.1,
 copied in verbatim as the starting point) into the **first exemplar plugin built on
@@ -99,7 +106,7 @@ Use it to:
 - `--snapshot-url` with creds-in-URL: the whole point of the cache path is that
   sage-yolo2 no longer touches the camera, so it no longer needs camera creds at all
   in cache mode. (Standalone snapshot mode, if retained, still has the cleartext-cred
-  problem — tracked in sage-design-planning/Infra-problems-to-fix.md.)
+  problem — tracked in [Infra-problems-to-fix.md](https://github.com/flint-pete/sage-design-planning/blob/master/Infra-problems-to-fix.md).)
 
 ---
 
@@ -157,7 +164,7 @@ One camera open, one decode, many consumers. That is the architectural win.
    job config. **Fail fast** if the cache dir is not present/provisioned (i.e. the
    prototype pywaggle2/WES `wes-local-cache-manager` mount is absent) — no silent
    fallback, no auto-discovery. Cache discovery/announcement is explicitly DEFERRED
-   (tracked as IS-5 in sage-design-planning/plugin-improvements.md); convention
+   (tracked as IS-5 in [plugin-improvements.md](https://github.com/flint-pete/sage-design-planning/blob/master/plugin-improvements.md)); convention
    suffices for the exemplar.
 
 ### 5.2 Remaining open questions (decide during staging)

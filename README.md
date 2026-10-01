@@ -8,6 +8,37 @@ predecessor, its production path does **not open a camera**: it consumes image f
 that a producer plugin (`media-sampler3`) wrote into a shared on-node cache. One camera
 open, one decode, many consumers — that is the architectural win.
 
+## Where this fits
+
+sage-yolo2 is one of the two **test consumers** in the media-sampler3 stack. It's
+also the example to copy when you write a new cache consumer.
+
+```
+camera ─▶ media-sampler3 ─▶ /local-cache/camera/top/ ─▶ sage-yolo2 ─▶ env.count.* ─▶ Beehive
+                                                            │
+                                                            └▶ /local-cache/camera-crops/top-crop-N/ ─▶ sage-bioclip2 ─▶ env.species.*
+wes-local-cache-manager bounds /local-cache · wes-nodeinfo-injection + pywaggle2-nodeinfo supply node identity
+```
+
+| Related | Role |
+|---|---|
+| [media-sampler3](https://github.com/flint-pete/media-sampler3) | The producer whose frames this reads. Also the hub repo: [install guide](https://github.com/flint-pete/media-sampler3/blob/master/INSTALLING-MEDIA-SAMPLER3.md), [REBOOT-RECOVERY.md](https://github.com/flint-pete/media-sampler3/blob/master/REBOOT-RECOVERY.md), [HOW-IT-WORKS.md](https://github.com/flint-pete/media-sampler3/blob/master/docs/HOW-IT-WORKS.md) |
+| [sage-bioclip2](https://github.com/flint-pete/sage-bioclip2) | Reads the crops this writes and classifies species |
+| [wes-local-cache-manager](https://github.com/flint-pete/wes-local-cache-manager) | Provides and bounds `/local-cache`; never evicts `.state/`, where the seen-store lives |
+| [pywaggle2-nodeinfo](https://github.com/flint-pete/pywaggle2-nodeinfo) | Copied (vendored) here as `node_info.py` for pod identity |
+
+**Code map**
+
+| File | What it does | Origin |
+|---|---|---|
+| `app.py` | CLI, wake loop (`--every`), YOLO inference, publishing, uploads, crop-producer wiring | this repo |
+| `consumer.py` | Read side of the v2 cache contract: scans and parses `-v2-` filenames, reads EXIF/UserComment metadata, fails fast if the cache is missing, resolves identity (frame first, pod env as fallback) | this repo (copied into sage-bioclip2) |
+| `selection.py` | Decides which frames each wake processes (`--select-every`, `--all-unseen`, `--max-frames`) | this repo (copied into sage-bioclip2) |
+| `seenstore.py` | Durable dedup memory under `/local-cache/.state/` | this repo (copied into sage-bioclip2) |
+| `crop_writer.py` | Write side: builds a self-describing v2 JPEG crop and commits it into a bounded ring | copied from media-sampler3 `metadata.py` + `cache.py` (see VENDORED.md) |
+| `save_match.py` | `Class:confidence` rule parsing for `--save-match` / `--crop-match` | shared copy across the plugin family |
+| `node_info.py` | Pod identity from `WAGGLE_NODE_*` env | copied from pywaggle2-nodeinfo (VENDORED.md) |
+
 ---
 
 ## 1. What it does / the architecture
@@ -39,6 +70,25 @@ but **cache is the intended production path.**
 ---
 
 ## 2. Quick start / usage examples
+
+**On a Thor node** (side-loaded image, shared cache), the verified command is
+Step 6c of the install guide. Build the image first with
+`scripts/deploy-sideload.sh --skip-register` (see [DOCKER-BUILD.md](DOCKER-BUILD.md)).
+
+```bash
+sudo pluginctl run --name sage-yolo2-consumer --selector zone=core \
+  --resource limit.memory=16Gi,request.memory=4Gi \
+  -v /media/plugin-data/local-cache:/local-cache \
+  -e WAGGLE_JOB_NAME=camera -e WAGGLE_TASK_NAME=sage-yolo2 \
+  registry.sagecontinuum.org/beckman/sage-yolo2:2.1.0 -- \
+  --source cache --input /local-cache/camera/top \
+  --every 5m --all-unseen --max-frames 0 \
+  --model yolo11x.pt --conf-thres 0.25 --classes bird \
+  --crop-match "bird:0.4" --crop-padding 0.15 --crop-cache-name camera-crops
+```
+
+Running `app.py` directly, inside the image or in a Python env with the
+requirements installed:
 
 ```bash
 # Production: consume frames media-sampler3 wrote to the shared cache (NO camera)
@@ -113,7 +163,7 @@ that have no producer/cache provisioned.
 
 | Topic | Value | Notes |
 |---|---|---|
-| `env.count.<class_name>` | int | One record per detected COCO class (class name sanitized: spaces/hyphens → `_`). |
+| `env.count.<class_name>` | int | One record per detected COCO class (class name sanitized: spaces/hyphens → `_`). Published **only** for classes with at least one detection, so there is never an `env.count.bird = 0`. |
 | `env.count.total` | int | Total detections across all classes; also the empty-scene heartbeat (value `0`). |
 | `env.crop.count` | int | Crops produced from a frame (only when `--crop-match` is set and ≥1 crop was written). Frame-anchored. Meta: `camera`, `cache_name`. |
 
@@ -163,6 +213,22 @@ media-sampler3        sage-yolo2 (count + CROP-PRODUCE)         classifier (e.g.
 
 - **Where crops go:** `<cache-root>/<crop-cache-name>/<camera>-crop-<idx>/` (own bounded
   ring per detection index, so N objects in one frame → N distinct streams/entries).
+  - `<camera>` is the frame's EXIF `camera` field. That's media-sampler3's `--name`
+    (e.g. `top`), or the filename's source if the field is missing.
+  - `<idx>` is the detection's position in that frame's class-filtered detection
+    list, so the numbers can have gaps.
+  - **A consumer watching one directory sees only that index.** The standard
+    sage-bioclip2 setup reads `top-crop-0`, so only the first bird of each frame is
+    classified.
+- **Counts vs crops:** counting uses `--conf-thres` (e.g. 0.25), but cropping uses
+  the `--crop-match` threshold (e.g. `bird:0.4`). So `env.count.bird` can exceed
+  the number of crops.
+- **Why crops go back into the cache** instead of being handed straight to the
+  classifier: the two stages stay decoupled.
+  - Each runs on its own schedule and GPU budget.
+  - The classifier gets its own seen-store and dedup.
+  - Any number of classifiers can read the same crops.
+  - If one side is down, nothing breaks; the ring holds the backlog.
 - **Frame-anchored:** each crop inherits the **parent frame's `capture_ts`**, so a species
   result traces back to when the photo was taken.
 - **Provenance:** each crop's `UserComment` JSON carries a nested `source` object —
@@ -254,8 +320,21 @@ one-shot pod each scheduled fire — does not re-infer the whole cache.
   ```
   <root>/.state/<plugin>/<consumer-id>/<cache-name>/<camera>/seen
   ```
-  `<consumer-id>` defaults to `WAGGLE_JOB_NAME`+`WAGGLE_TASK_NAME` — stable across
-  restarts of the same scheduled instance, yet distinct between different instances.
+  `<consumer-id>` defaults to `<WAGGLE_JOB_NAME>-<WAGGLE_TASK_NAME>`. That stays the
+  same across restarts of one scheduled instance, but differs between instances.
+  - `pluginctl run` doesn't set these variables, so pass them yourself:
+    `-e WAGGLE_JOB_NAME=camera -e WAGGLE_TASK_NAME=sage-yolo2` gives
+    `/local-cache/.state/sage-yolo2/camera-sage-yolo2/camera/top/seen`.
+  - Without them, the id falls back to the per-pod `WAGGLE_APP_ID` (with a
+    warning), and the memory is lost on every relaunch.
+- **To process only the newest frames,** use `--select-every 0 --max-frames K`
+  (the K newest) with a new `--consumer-id`, so an existing seen-store or backlog
+  doesn't get in the way.
+- **Frames without a `unique_id` are never marked seen.** That means any JPEG not
+  written by media-sampler3 or crop_writer, such as the hand-seeded
+  `tests/test-images/bird-cardinal-sample.jpg`. They are **reprocessed on every
+  wake** until the ring evicts them, so delete seeded test frames after use. This
+  is a known limitation; a fix would key such frames on a computed hash.
 - **`--consumer-id`.** By default two different Sage jobs get *separate* seen-stores, so
   each independently processes every frame ("two different analyses of one stream"). Give
   N identical workers the **same** `--consumer-id` to have them cooperatively divide one
@@ -273,8 +352,12 @@ one-shot pod each scheduled fire — does not re-infer the whole cache.
   YOLO required. It **self-bootstraps a throwaway venv** (`.venv-test`) with pytest,
   Pillow, piexif, and numpy, so it runs out-of-the-box on a clean checkout. Clean up with
   `make clean`.
-- **`tests/run-tests.sh`** — the GPU integration test (real YOLO11x inference over
-  `tests/test-images/`). Requires a GPU and the shared project venv.
+- **Real-model check (GPU, on a node):** the deterministic cascade test in the
+  install guide (Step 6f). It seeds `tests/test-images/bird-cardinal-sample.jpg`, a
+  public-domain Northern Cardinal confirmed to detect as `bird`, into the cache.
+  It then checks for `env.count.bird`, the crop, and bioclip2's species result.
+  The other `tests/test-images/*` files are camera-sized scenes with no guaranteed
+  bird. The old v1 GPU script is kept in `docs/history/tests/`.
 
 ---
 
@@ -286,13 +369,23 @@ one-shot pod each scheduled fire — does not re-infer the whole cache.
   **fails fast** with a clear message rather than silently doing nothing — a missing
   cache means the node lacks the component, the producer never ran, or the volume was not
   mounted. The cache root defaults to `/local-cache` and is overridable via the
-  `IS2_CACHE_ROOT` env var (kept in sync with the producer).
+  `IS2_CACHE_ROOT` env var, kept in sync with the producer. The `IS2_` prefix is a
+  legacy name from media-sampler3's image-sampler2 lineage, kept for
+  compatibility.
 - **YOLO11x** needs ~4–5 GB GPU memory at 1080p. It fits easily in the 128 GB unified
   memory on DGX Spark / Sage Thor nodes.
 - `stream`/`snapshot`/`image-dir` modes do **not** require the cache mount (standalone /
   local-test fallbacks).
 
 ---
+
+## Docs in this repo
+
+- [DOCKER-BUILD.md](DOCKER-BUILD.md): building and side-loading, GPU constraints, troubleshooting.
+- [V2-Design.md](V2-Design.md) and [CROP-PRODUCER-Design.md](CROP-PRODUCER-Design.md): design records explaining why it works this way.
+- [VENDORED.md](VENDORED.md): which files are copied from where, and what must stay in sync.
+- `jobs/sage-yolo2-camera.yaml`: an **untested** SES template (producer + consumer).
+- [docs/history/](docs/history/): v1 docs, status logs and deploy plans (not maintained).
 
 ## Contact
 

@@ -9,7 +9,7 @@
 |---|---|
 | Source repo | `pywaggle2-nodeinfo` |
 | Source path | `waggle/data/node_info_env.py` |
-| Vendored at | `v0.1.0` (commit `4f3e589`) |
+| Vendored at | `v0.1.1` (commit `79aa76b`; code identical to v0.1.0 — only a doc-link line changed) |
 | Local path | `node_info.py` (repo root) |
 | Import | `from node_info import read_node_info, NodeInfo` |
 

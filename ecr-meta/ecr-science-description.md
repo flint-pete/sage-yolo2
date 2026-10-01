@@ -97,11 +97,12 @@ absent.
 
 ## Testing
 
-`make test` runs a fully offline suite (self-bootstrapping venv, ~120 tests):
+`make test` runs a fully offline suite (self-bootstrapping venv, 141 tests):
 pure-logic unit tests for the consumer, frame selection, seen-store dedup, and
 node-identity resolution, plus an integration test that drives the cache wake
-loop end-to-end with stubbed GPU libraries. A GPU integration path
-(`tests/run-tests.sh`) exercises the real model on committed images.
+loop end-to-end with stubbed GPU libraries. The real-model check is the
+deterministic cascade test in the media-sampler3 install guide (Step 6f), which
+seeds `tests/test-images/bird-cardinal-sample.jpg` on a node.
 
 ## Example use cases
 

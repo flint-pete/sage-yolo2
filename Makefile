@@ -4,7 +4,7 @@
 # logic, no GPU / cv2 / YOLO. It self-bootstraps a throwaway venv with pytest so
 # the suite runs out-of-the-box on a clean checkout.
 #
-# The GPU integration test (real YOLO inference) is separate: tests/run-tests.sh.
+# Real-model (GPU) check: the seeded-bird cascade test, media-sampler3 INSTALLING guide Step 6f.
 
 VENV := .venv-test
 PY   := $(VENV)/bin/python
