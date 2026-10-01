@@ -15,7 +15,7 @@ See `CROP-PRODUCER-Design.md`.
 ### Added
 - **`crop_writer.py`** — vendored v2 cache-writer (WRITE side of the contract:
   EXIF/UserComment embed + per-stream bounded ring with evict-on-either-cap and
-  atomic tmp→replace), from image-sampler2's `metadata.py` + `cache.py`. Kept
+  atomic tmp→replace), from media-sampler3's `metadata.py` + `cache.py`. Kept
   compatible with sage-yolo2's own `consumer.py` reader. Registered in VENDORED.md.
 - **Crop flags** (all OFF by default): `--crop-match` (Class:confidence rules,
   same grammar as `--save-match`), `--crop-padding` (0.15), `--crop-min-px` (32),
@@ -64,7 +64,7 @@ code change; still version 2.0.0).
 ### Verified (on H00F, Thor/arm64)
 - Built natively + side-loaded `registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0`
   (10.7 GiB) — ECR portal build is N/A for this CUDA base (QEMU cross-build crash,
-  Infra #3). Ran a live **image-sampler2 producer → shared cache → sage-yolo2
+  Infra #3). Ran a live **media-sampler3 producer → shared cache → sage-yolo2
   consumer** pair. Data API confirmed `env.count.total` published **frame-anchored**
   (record ts = frame capture ts), `meta.vsn=H00F`, `meta.node=00004cbb4701d16c`,
   `meta.plugin=.../sage-yolo2:2.0.0`. Seen-store persisted 5 `unique_id`s; a second
@@ -74,7 +74,7 @@ code change; still version 2.0.0).
 
 The v2 rewrite: sage-yolo2 stops opening its own camera and becomes a **pywaggle2
 cache consumer**. Instead of being its own producer (N analysis plugins = N camera
-opens = N decode paths), it consumes self-describing frames that `image-sampler2`
+opens = N decode paths), it consumes self-describing frames that `media-sampler3`
 wrote into the shared WES `/local-cache`. One camera open, one decode, many
 consumers. Full design in `V2-Design.md`.
 
@@ -221,7 +221,7 @@ consumers. Full design in `V2-Design.md`.
   10-minute guard-bands so the two never contend. ~20 min/hour total GPU use.
 
 ### Changed
-- H00F hummingcam job converted to windowed mode and class-filtered to
+- H00F camera job converted to windowed mode and class-filtered to
   **`person,bird,fork`**. The `fork` class is a deliberate **sentinel**: a fork
   cannot occur naturally in the scene, so a fork detection unambiguously means a
   human placed one in-frame to demonstrate the trigger end-to-end.

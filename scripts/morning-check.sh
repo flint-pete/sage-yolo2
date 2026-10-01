@@ -20,15 +20,15 @@ sudo kubectl logs sage-yolo2-consumer -n default 2>/dev/null \
   | grep -iE "BIRD|Produced .* crop|Published env.count.bird|skip crop" | tail -20 \
   || echo "  no bird/crop log lines yet"
 echo "-- crop cache on disk --"
-if sudo test -d /media/plugin-data/local-cache/hummingcam-crops; then
-  sudo find /media/plugin-data/local-cache/hummingcam-crops -name '*.jpg' 2>/dev/null \
+if sudo test -d /media/plugin-data/local-cache/camera-crops; then
+  sudo find /media/plugin-data/local-cache/camera-crops -name '*.jpg' 2>/dev/null \
     | awk -F/ '{s[$(NF-1)]++} END{for(k in s) printf "  %-24s %d crops\n", k, s[k]; if(!length(s)) print "  (dir exists, no crops yet)"}'
 else
   echo "  crop cache dir not created yet (no bird >=0.5 conf seen since deploy)"
 fi
 
 echo; echo "== 4. sample crop metadata (proves valid v2 frame + provenance) =="
-sample="$(sudo find /media/plugin-data/local-cache/hummingcam-crops -name '*.jpg' 2>/dev/null | head -1)"
+sample="$(sudo find /media/plugin-data/local-cache/camera-crops -name '*.jpg' 2>/dev/null | head -1)"
 if [ -n "$sample" ]; then
   echo "  sample: $sample"
   sudo python3 - "$sample" <<'PY'

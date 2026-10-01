@@ -19,7 +19,7 @@ object for species-level identification — a detect→classify cascade mediated
 entirely by the shared cache, with **no cross-plugin triggering code**.
 
 ```
-image-sampler2        sage-yolo2 (detect + CROP-PRODUCE)          bioclip (classify)
+media-sampler3        sage-yolo2 (detect + CROP-PRODUCE)          bioclip (classify)
  PRODUCER              CONSUMER + PRODUCER                          CONSUMER
  camera -> cache  -->  read frame, YOLO detect                 -->  read each crop
  <cam> stream          count/publish (unchanged)                    species classify
@@ -30,7 +30,7 @@ image-sampler2        sage-yolo2 (detect + CROP-PRODUCE)          bioclip (class
 
 ## 1. Why this design
 
-- **Reuses the proven cache contract.** image-sampler2 -> yolo2 already works on
+- **Reuses the proven cache contract.** media-sampler3 -> yolo2 already works on
   H00F; this just makes yolo2 ALSO write into the same kind of cache stream.
 - **BioCLIP needs zero changes** IF crops are written in the identical v2 format
   it already consumes (same filename scheme + EXIF/UserComment metadata).
@@ -43,7 +43,7 @@ image-sampler2        sage-yolo2 (detect + CROP-PRODUCE)          bioclip (class
 
 ## 2. The v2 format a crop MUST satisfy (so BioCLIP can read it)
 
-From image-sampler2 (`metadata.py`, `cache.py`) — the crop producer must emit
+From media-sampler3 (`metadata.py`, `cache.py`) — the crop producer must emit
 byte-compatible frames:
 
 - **Filename:** `<capture_ts_ns>-v2-<vsn>-<camera>.jpg` (parsed by
@@ -74,7 +74,7 @@ byte-compatible frames:
 RESOLVED (locked 2026-07-14): **(B) vendored copy.** The v2 writer
 (`metadata.py` + `cache.py` ring/eviction logic) is copied into yolo2 as a
 vendored module (like `save_match.py` is kept byte-identical across repos) — no
-image-sampler2 change, isolated single-repo feature. Manual sync is the accepted
+media-sampler3 change, isolated single-repo feature. Manual sync is the accepted
 tradeoff. (A) shared module remains the cleaner long-term option if these ever
 diverge enough to warrant a shared package.
 
@@ -119,7 +119,7 @@ crop-production works in test and standalone modes too.
   role), scanning each crop stream and reading each crop back with the SAME
   consumer API (scan_frames + read_frame_metadata). Asserts 2 crops, correct
   crop PIXELS/geometry, capture_ts inheritance, and full source_* provenance.
-- **Stage 5 — on-node e2e (H00F):** live hummingcam -> yolo2 crops -> a REAL
+- **Stage 5 — on-node e2e (H00F):** live camera -> yolo2 crops -> a REAL
   BioCLIP consumer classifies each crop -> species records in the data API. Full
   cascade verified end-to-end (data-API proof, not just logs).
 - **Stage 6 — docs (README/DESIGN/DOCKER-BUILD/CHANGELOG) + bump to 2.1.0 +

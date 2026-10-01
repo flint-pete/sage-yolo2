@@ -5,7 +5,7 @@
 sage-yolo2 runs YOLO11x (56.9M params, 54.7% mAP COCO) to count objects per COCO class,
 publishes per-class counts, and optionally uploads annotated images. Unlike its
 predecessor, its production path does **not open a camera**: it consumes image frames
-that a producer plugin (`image-sampler2`) wrote into a shared on-node cache. One camera
+that a producer plugin (`media-sampler3`) wrote into a shared on-node cache. One camera
 open, one decode, many consumers — that is the architectural win.
 
 ---
@@ -13,13 +13,13 @@ open, one decode, many consumers — that is the architectural win.
 ## 1. What it does / the architecture
 
 In production, sage-yolo2 is a **consumer** of an already-produced set of frames. The
-producer (`image-sampler2`) opens the camera once and writes self-describing JPEG frames
+producer (`media-sampler3`) opens the camera once and writes self-describing JPEG frames
 into a shared `/local-cache` directory provided by the `wes-local-cache-manager` WES
 component. sage-yolo2 is *pointed at* a per-stream directory in that cache, selects
 frames, runs inference, and publishes counts anchored to the frame's capture metadata.
 
 ```
-  image-sampler2 (PRODUCER)                         sage-yolo2 (CONSUMER)
+  media-sampler3 (PRODUCER)                         sage-yolo2 (CONSUMER)
   - opens camera once                               - NO camera
   - writes <ts>-v2-<vsn>-<cam>.jpg   --/local-cache--> reads committed -v2- frames
     into <root>/<cache-name>/<cam>/                 - get_node_info() for vsn/gps
@@ -41,8 +41,8 @@ but **cache is the intended production path.**
 ## 2. Quick start / usage examples
 
 ```bash
-# Production: consume frames image-sampler2 wrote to the shared cache (NO camera)
-python3 app.py --source cache --input /local-cache/hummingcam/top --classes bird
+# Production: consume frames media-sampler3 wrote to the shared cache (NO camera)
+python3 app.py --source cache --input /local-cache/camera/top --classes bird
 
 # Local testing: a directory of images, no node/cache/camera
 python3 app.py --source image-dir --input ./tests/test-images --every 0
@@ -154,7 +154,7 @@ cache, with **no cross-plugin triggering code**. When `--crop-match` is empty (d
 none of this runs; the count/upload path is unchanged.
 
 ```
-image-sampler2        sage-yolo2 (count + CROP-PRODUCE)         classifier (e.g. BioCLIP)
+media-sampler3        sage-yolo2 (count + CROP-PRODUCE)         classifier (e.g. BioCLIP)
  camera → cache   →   read frame, YOLO detect, count/publish  →  read each crop, classify
  <cam> stream         for each --crop-match detection:             + annotate/upload
                         crop bbox → write v2 frame
@@ -178,10 +178,10 @@ image-sampler2        sage-yolo2 (count + CROP-PRODUCE)         classifier (e.g.
 Example — count birds AND feed a BioCLIP-style classifier:
 
 ```bash
-python3 app.py --source cache --input /local-cache/hummingcam/top \
+python3 app.py --source cache --input /local-cache/camera/top \
   --classes bird --conf-thres 0.25 --every 10m \
   --save-match "bird:0.4" \
-  --crop-match "bird:0.5" --crop-padding 0.15 --crop-cache-name hummingcam-crops
+  --crop-match "bird:0.5" --crop-padding 0.15 --crop-cache-name camera-crops
 ```
 
 Crops are compatible with the same `consumer.read_frame_metadata` API sage-yolo2 itself
@@ -192,7 +192,7 @@ uses, verified offline end-to-end by `tests/test_crop_e2e.py`. See
 
 ## 6. Metadata & provenance
 
-Cached `-v2-` frames are **self-describing**: `image-sampler2` embeds a full JSON blob in
+Cached `-v2-` frames are **self-describing**: `media-sampler3` embeds a full JSON blob in
 the EXIF `UserComment` tag (schema version, vsn, node_id, job, task, plugin, camera,
 `capture_timestamp_ns`, `unique_id`, lat/lon, `acquisition_path`, …) plus standard EXIF
 tags. sage-yolo2 trusts the frame's own metadata over re-deriving it, so a published
@@ -281,7 +281,7 @@ one-shot pod each scheduled fire — does not re-infer the whole cache.
 ## 9. Requirements / deployment
 
 - **Cache mode** requires the `/local-cache` mount provided by the
-  `wes-local-cache-manager` WES component, plus a producer (`image-sampler2`) filling a
+  `wes-local-cache-manager` WES component, plus a producer (`media-sampler3`) filling a
   per-stream directory. If the target cache directory is absent or unreadable, sage-yolo2
   **fails fast** with a clear message rather than silently doing nothing — a missing
   cache means the node lacks the component, the producer never ran, or the volume was not

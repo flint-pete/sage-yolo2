@@ -25,7 +25,7 @@ All producer-side work is complete, tested offline, and released.
 | Piece | State | Where |
 |---|---|---|
 | Design locked (9 decisions + vendored copy + `--crop-min-px`) | ✅ | `CROP-PRODUCER-Design.md` |
-| v2 cache-writer (EXIF embed + bounded ring, vendored from image-sampler2) | ✅ | `crop_writer.py` |
+| v2 cache-writer (EXIF embed + bounded ring, vendored from media-sampler3) | ✅ | `crop_writer.py` |
 | Crop logic wired into all 3 source paths (cache/image-dir/live), off by default | ✅ | `app.py` `_maybe_produce_crops` |
 | Crop flags surfaced for adopters | ✅ | `sage.yaml` inputs + README CLI table |
 | `env.crop.count` measurement (frame-anchored) | ✅ | `app.py`; `env.crop.*` in sage.yaml ontology |
@@ -59,7 +59,7 @@ end-to-end on a node, two things remain — both **outside this producer's code*
   applies; the only delta is the new image tag and adding the crop flags to the
   job spec, e.g.:
   ```
-  --crop-match "bird:0.5" --crop-padding 0.15 --crop-cache-name hummingcam-crops
+  --crop-match "bird:0.5" --crop-padding 0.15 --crop-cache-name camera-crops
   ```
 - GPU pluginctl pods need `--resource limit.memory=16Gi` (else OOMKilled 137).
 - Verify: `env.crop.count` appears in the data API, and crop frames accumulate in
@@ -81,11 +81,11 @@ BioCLIP would:
 - Publish species records (frame-anchored to the inherited `capture_ts`).
 
 When that consumer exists, the on-node cascade (design "Stage 5") can be verified
-end-to-end: live hummingcam → yolo2 crops → BioCLIP → species in the data API.
+end-to-end: live camera → yolo2 crops → BioCLIP → species in the data API.
 
 ## Open / deferred decisions
 
-- **Vendored `crop_writer.py` will drift** from image-sampler2's `metadata.py` +
+- **Vendored `crop_writer.py` will drift** from media-sampler3's `metadata.py` +
   `cache.py` if those change. There's no auto-diff (it's a curated merge); the
   crop tests are the contract guard. See VENDORED.md sync obligation. Long-term,
   a shared package (design decision option A) is cleaner if it ever diverges.

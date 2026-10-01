@@ -17,7 +17,7 @@
 # Usage:
 #   ./reolink-set-focus.sh [--keep-autofocus] <camera-url> <username> <password> <focus-value>
 #
-# Example (H00F hummingcam, RLC-811A — requires the ADMIN account):
+# Example (H00F camera, RLC-811A — requires the ADMIN account):
 #   ./reolink-set-focus.sh http://10.107.0.221:10000 admin '<ADMIN_PASSWORD>' 3065
 #
 # Notes:

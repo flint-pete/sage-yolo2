@@ -24,7 +24,7 @@ a Sage node.
 > ```bash
 > export SAGE_TOKEN=...            # Sage portal token (for the catalog register step)
 > scripts/deploy-sideload.sh                                    # build → import → register
-> scripts/deploy-sideload.sh --submit jobs/yolo-hummingcam-h00f.yaml   # + create/submit SES job
+> scripts/deploy-sideload.sh --submit jobs/yolo-camera.yaml   # + create/submit SES job
 > ```
 >
 > Add `--dry-run` to preview every step without executing. `--submit` also needs
@@ -36,7 +36,7 @@ a Sage node.
 
 ## v2 cache-consumer deploy (VERIFIED end-to-end on H00F, 2026-07-14)
 
-This is the actual v2 production shape: a **producer** (`image-sampler2`) writes
+This is the actual v2 production shape: a **producer** (`media-sampler3`) writes
 frames to the shared cache, and sage-yolo2 **consumes** them (`--source cache`).
 Both are side-loaded and run with `sudo pluginctl run`. The full e2e below was
 run on H00F and confirmed via the data API (frame-anchored `env.count.total`,
@@ -51,7 +51,7 @@ Key facts learned on the node (all baked into the commands):
   a gpu resource — `--resource resource.gpu=true` is invalid (quantities only);
   GPU access is automatic via Thor's NVIDIA runtime.
 - Camera creds go in a **root-only env file** consumed by `--env-from`, never on
-  argv. `image-sampler2` reads `CAMERA_{HOST,PORT,CHANNEL,USER,PASSWORD}`.
+  argv. `media-sampler3` reads `CAMERA_{HOST,PORT,CHANNEL,USER,PASSWORD}`.
 - The cache host path is `/media/plugin-data/local-cache` (from
   `wes-local-cache-manager`); mount it to `/local-cache` in both pods.
 
@@ -60,14 +60,14 @@ Key facts learned on the node (all baked into the commands):
 printf 'CAMERA_HOST=10.107.0.221\nCAMERA_PORT=10000\nCAMERA_CHANNEL=0\nCAMERA_USER=USER\nCAMERA_PASSWORD=PASS\n' \
   | ssh beckman@node-H00F.sage 'sudo tee /root/cam.env >/dev/null && sudo chmod 600 /root/cam.env'
 
-# --- 1. PRODUCER: image-sampler2 --continuous writes frames to the shared cache ---
-sudo pluginctl run --name hummingcam-producer \
+# --- 1. PRODUCER: media-sampler3 --continuous writes frames to the shared cache ---
+sudo pluginctl run --name media-producer \
   --selector zone=core \
   --env-from /root/cam.env \
   -v /media/plugin-data/local-cache:/local-cache \
-  localhost/image-sampler2:0.3.0-rc -- \
+  localhost/media-sampler3:0.3.0-rc -- \
   --continuous 10 --stream top_camera --name top \
-  --cache-root /local-cache --cache-name hummingcam --cache-max-count 20 --vsn H00F
+  --cache-root /local-cache --cache-name camera --cache-max-count 20 --vsn H00F
 
 # --- 2. CONSUMER: sage-yolo2 --source cache reads those frames ---
 sudo pluginctl run --name sage-yolo2-consumer \
@@ -76,12 +76,12 @@ sudo pluginctl run --name sage-yolo2-consumer \
   -v /media/plugin-data/local-cache:/local-cache \
   -e WAGGLE_JOB_NAME=stage7 -e WAGGLE_TASK_NAME=sage-yolo2 \
   registry.sagecontinuum.org/beckman/sage-yolo2:2.0.0 -- \
-  --source cache --input /local-cache/hummingcam/top \
+  --source cache --input /local-cache/camera/top \
   --every 0 --all-unseen --max-frames 5 \
   --model yolo11x.pt --conf-thres 0.25 --classes bird --save-match "bird:0.4"
 
 # --- 3. teardown ---
-sudo pluginctl rm hummingcam-producer sage-yolo2-consumer
+sudo pluginctl rm media-producer sage-yolo2-consumer
 ssh beckman@node-H00F.sage 'sudo rm -f /root/cam.env'
 ```
 
@@ -104,7 +104,7 @@ curl -s -X POST https://data.sagecontinuum.org/api/v1/query \
 > (`sesctl create/submit`) DOES validate against the ECR catalog and would need
 > a first-time catalog record for `beckman/sage-yolo2` (deferred — the plugin
 > ships as side-load-run for now). The canonical producer+consumer SES pair is
-> `jobs/sage-yolo2-hummingcam-h00f.yaml`.
+> `jobs/sage-yolo2-camera.yaml`.
 
 ---
 
@@ -411,7 +411,7 @@ sudo k3s ctr images ls | grep yolo
 **With an RTSP camera (named or URL):**
 
 ```bash
-sudo pluginctl deploy -n yolo-hummingcam \
+sudo pluginctl deploy -n yolo-camera \
     --resource 'memory=8Gi,limit.memory=16Gi' \
     docker.io/library/yolo-object-counter:0.3.1 \
     -- --stream bottom_camera --interval 60 --continuous Y
@@ -420,7 +420,7 @@ sudo pluginctl deploy -n yolo-hummingcam \
 **With an HTTP snapshot camera (e.g. Reolink via port-mapped router):**
 
 ```bash
-sudo pluginctl deploy -n yolo-hummingcam \
+sudo pluginctl deploy -n yolo-camera \
     --resource 'memory=8Gi,limit.memory=16Gi' \
     docker.io/library/yolo-object-counter:0.3.1 \
     -- --snapshot-url "http://IP:PORT/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snap&user=USER&password=PASS&width=640&height=360" \
@@ -442,26 +442,26 @@ too low for YOLO11x and the pod gets OOMKilled (exit code 137).
 sudo pluginctl ps
 
 # Watch logs (live inference output)
-sudo pluginctl logs yolo-hummingcam
+sudo pluginctl logs yolo-camera
 
 # Follow logs continuously (Ctrl-C to stop watching)
-sudo pluginctl logs -f yolo-hummingcam
+sudo pluginctl logs -f yolo-camera
 
 # Check pod status (Running, Failed, etc.)
-sudo kubectl get pod yolo-hummingcam
+sudo kubectl get pod yolo-camera
 ```
 
 Note: `pluginctl logs` requires `sudo` on Thor (k3s kubeconfig
 is root-only). If the pod shows `Failed`, check for OOMKilled:
 
 ```bash
-sudo kubectl get pod yolo-hummingcam -o jsonpath='{.status.containerStatuses[0].state}' && echo ''
+sudo kubectl get pod yolo-camera -o jsonpath='{.status.containerStatuses[0].state}' && echo ''
 ```
 
 ### Step 4: Stop
 
 ```bash
-sudo pluginctl rm yolo-hummingcam
+sudo pluginctl rm yolo-camera
 ```
 
 ### Step 5: Rebuild and redeploy (after code changes)
@@ -478,8 +478,8 @@ sudo docker build -t yolo-object-counter:0.3.1 .
 sudo docker save yolo-object-counter:0.3.1 | sudo k3s ctr images import -
 
 # Remove old deployment and redeploy
-sudo pluginctl rm yolo-hummingcam
-sudo pluginctl deploy -n yolo-hummingcam \
+sudo pluginctl rm yolo-camera
+sudo pluginctl deploy -n yolo-camera \
     --resource 'memory=8Gi,limit.memory=16Gi' \
     docker.io/library/yolo-object-counter:0.3.1 \
     -- --snapshot-url "..." --interval 60 --continuous Y --upload-image Y
@@ -497,7 +497,7 @@ a lot for what you're observing:
 
 | | **Windowed** (default for birds) | **Continuous** (always-on) | **One-shot** (cron) |
 |---|---|---|---|
-| Job file | `jobs/yolo-hummingcam-h00f.yaml` | (git history / hand-edit) | `jobs/yolo-hummingcam-h00f-oneshot.yaml` |
+| Job file | `jobs/yolo-camera.yaml` | (git history / hand-edit) | `jobs/yolo-camera-oneshot.yaml` |
 | Args | `--continuous Y --interval 15 --max-runtime 600` | `--continuous Y --interval 60` | `--continuous N` |
 | Science rule | `cronjob(..., '0 * * * *')` | `schedule(...): True` | `cronjob(..., '*/10 * * * *')` |
 | Sampling | every 15 s for 10 min/hour, then self-exit | every 60 s, forever | once per cron tick |
@@ -523,10 +523,10 @@ single-shot and freeing the GPU. A cron starts each window; the plugin ends it.
 The 10-minute guard-bands absorb any model-load overrun so the two never collide
 on the single GPU. Net GPU use: ~20 min/hour (~1/3) for both plugins combined.
 
-**Why this matters — a real failure we hit:** when the hummingbird cam ran
+**Why this matters — a real failure we hit:** when an example bird cam ran
 as a `*/10` one-shot cron, bird detections collapsed from ~15/day to ~0. A
-hummingbird visits the feeder for only a few seconds, so sampling once every
-10 minutes almost never catches one in-frame. Windowed mode samples every 15s
+brief subject like a bird is in-frame for only a few seconds, so sampling once
+every 10 minutes almost never catches one in-frame. Windowed mode samples every 15s
 *within* its window, restoring detection coverage while still sharing the GPU.
 **Rule of thumb:** brief/unpredictable subject + shared GPU → windowed; brief
 subject + dedicated GPU → continuous; slowly-changing scene → one-shot.
@@ -594,12 +594,12 @@ Make the app **public**, or SES returns `registry ... does not exist in ECR`.
 **Step 3 — create + submit the SES job** (needs a write-scoped SES token). **Pick
 the job file for your mode** (see "Continuous vs One-shot" above):
 
-- Continuous (default, for hummingbirds): `jobs/yolo-hummingcam-h00f.yaml`
-- One-shot cron (slow scenes): `jobs/yolo-hummingcam-h00f-oneshot.yaml`
+- Continuous (default, for brief subjects like birds): `jobs/yolo-camera.yaml`
+- One-shot cron (slow scenes): `jobs/yolo-camera-oneshot.yaml`
 
 ```bash
 sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" \
-    create -f jobs/yolo-hummingcam-h00f.yaml      # returns a numeric job ID
+    create -f jobs/yolo-camera.yaml      # returns a numeric job ID
 sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" \
     submit -j <job-id>
 ```

@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# YOLO Object Counter — H00F hummingbird cam (WINDOWED continuous)
+# YOLO Object Counter — example camera (WINDOWED continuous)
 #
 # GPU-SHARING MODE. Thor has ONE GPU; two always-on continuous plugins cannot
 # co-run (a held GPU blocks the second pod entirely). So instead of holding the
@@ -11,7 +11,7 @@
 # Window layout (with guard-bands so neither can bleed into the other):
 #   :00–:10  YOLO     (this job)
 #   :10–:20  guard
-#   :20–:30  BioCLIP  (jobs/bioclip-hummingcam-h00f.yaml)
+#   :20–:30  BioCLIP  (jobs/bioclip-camera-h00f.yaml)
 #   :30–:00  guard
 #
 # Mechanism: --continuous Y + --max-runtime 600 makes the plugin behave like one
@@ -19,7 +19,7 @@
 # at the end of the window (frees GPU). This needs yolo-object-counter >= 0.2.1.
 #
 # CLASS FILTER: count only people, birds, and forks.
-#   • person / bird — the subjects of interest at the feeder.
+#   • person / bird — example subjects of interest in this scene.
 #   • fork — a deliberate SENTINEL: a fork cannot appear naturally in this scene,
 #     so a fork detection means a human placed one in-frame to DEMONSTRATE the
 #     trigger end-to-end (unambiguous, unlike a fixed-object false positive).
@@ -28,13 +28,13 @@
 # Camera: Reolink RLC-811A snapshot CGI (creds as query params).
 #
 # Submit (with a write-scoped token):
-#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/yolo-hummingcam-h00f.yaml
+#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/yolo-camera.yaml
 #   sesctl ... submit -j <returned-id>
 #
 # For an always-on (GPU-hogging) variant or a plain one-shot cron, see
-# jobs/yolo-hummingcam-h00f-oneshot.yaml and git history.
+# jobs/yolo-camera-oneshot.yaml and git history.
 # ──────────────────────────────────────────────────────────────
-name: yolo-hummingcam
+name: yolo-camera
 plugins:
   - name: sage-yolo2
     pluginSpec:
@@ -66,6 +66,6 @@ nodes:
 scienceRules:
   # Start the 10-min window at the top of every hour (:00). The plugin's
   # --max-runtime 600 self-exits ~:10, freeing the GPU for the rest of the hour.
-  - "schedule(sage-yolo2): cronjob('yolo-hummingcam-window', '0 * * * *')"
+  - "schedule(sage-yolo2): cronjob('yolo-camera-window', '0 * * * *')"
 successcriteria:
   - WallClock('30day')

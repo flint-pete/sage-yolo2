@@ -1,14 +1,14 @@
 # ──────────────────────────────────────────────────────────────
-# YOLO Object Counter — H00F cam (ONE-SHOT, scheduler cron */10)
+# YOLO Object Counter — example camera (ONE-SHOT, scheduler cron */10)
 #
 # ALTERNATE mode. One capture per cron tick (every 10 min here), then the pod
 # exits and frees the GPU until the next tick. This is the lightweight option.
 #
-# ⚠️ NOT suitable for hummingbirds (or any fast/intermittent subject). A
-# hummingbird visits the feeder for a few seconds; sampling once every 10 min
-# almost never coincides with a visit. When the hummingbird cam ran this way,
-# bird detections dropped from ~15/day to ~0. Use the CONTINUOUS job
-# (jobs/yolo-hummingcam-h00f.yaml, --continuous Y --interval 60) for birds.
+# ⚠️ NOT suitable for a fast/intermittent subject (e.g. a bird). Such a subject
+# is in-frame for only a few seconds; sampling once every 10 min almost never
+# coincides with a visit. When an example bird cam ran this way, bird
+# detections dropped from ~15/day to ~0. Use the CONTINUOUS job
+# (jobs/yolo-camera.yaml, --continuous Y --interval 60) for brief subjects.
 #
 # WHEN ONE-SHOT IS THE RIGHT CHOICE:
 #   • Slow-changing scenes: cloud cover, snow depth, parking-lot occupancy,
@@ -26,10 +26,10 @@
 # Camera: Reolink RLC-811A snapshot CGI (creds as query params).
 #
 # Submit (with a write-scoped token):
-#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/yolo-hummingcam-h00f-oneshot.yaml
+#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/yolo-camera-oneshot.yaml
 #   sesctl ... submit -j <returned-id>
 # ──────────────────────────────────────────────────────────────
-name: yolo-hummingcam-oneshot
+name: yolo-camera-oneshot
 plugins:
   - name: sage-yolo2
     pluginSpec:

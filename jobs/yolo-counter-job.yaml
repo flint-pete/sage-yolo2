@@ -4,8 +4,8 @@
 #
 # NOTE: this uses --source stream (sage-yolo2 opens the camera directly). That's the
 # standalone FALLBACK path for a stock node with no shared cache. The intended v2
-# production path is --source cache (consume image-sampler2's frames) — see
-# jobs/sage-yolo2-hummingcam-h00f.yaml.
+# production path is --source cache (consume media-sampler3's frames) — see
+# jobs/sage-yolo2-camera.yaml.
 # ──────────────────────────────────────────────────────────────
 name: yolo-counter-chicago
 plugins:

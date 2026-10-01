@@ -1,7 +1,7 @@
 name: "sage-yolo2"
 namespace: "beckman"
 version: "2.1.0"
-description: "YOLO11x object counter + crop-producer, re-architected as a pywaggle2 cache consumer — reads frames a producer (image-sampler2) wrote to the shared on-node cache, runs YOLO11x, publishes per-class counts frame-anchored (observation time = capture time), and optionally uploads annotated images. Optionally (off by default) crops matching detections and writes them as v2 frames into a crop cache stream for a downstream classifier (e.g. BioCLIP) — a detect→classify cascade mediated by the shared cache. Standalone stream/snapshot fallbacks for stock nodes."
+description: "YOLO11x object counter + crop-producer, re-architected as a pywaggle2 cache consumer — reads frames a producer (media-sampler3) wrote to the shared on-node cache, runs YOLO11x, publishes per-class counts frame-anchored (observation time = capture time), and optionally uploads annotated images. Optionally (off by default) crops matching detections and writes them as v2 frames into a crop cache stream for a downstream classifier (e.g. BioCLIP) — a detect→classify cascade mediated by the shared cache. Standalone stream/snapshot fallbacks for stock nodes."
 authors: "Pete Beckman"
 collaborators: "Sage Team"
 funding: "NSF 2436842"

@@ -20,7 +20,7 @@
 #   Run from the repo root, ON the Thor node (needs docker + k3s + sudo):
 #
 #     scripts/deploy-sideload.sh                 # build → import → register
-#     scripts/deploy-sideload.sh --submit jobs/yolo-hummingcam-h00f.yaml
+#     scripts/deploy-sideload.sh --submit jobs/yolo-camera.yaml
 #     scripts/deploy-sideload.sh --version 0.3.2 # override the sage.yaml version
 #     scripts/deploy-sideload.sh --dry-run       # print the plan, run nothing
 #     scripts/deploy-sideload.sh --skip-build    # image already imported; just register
@@ -227,7 +227,7 @@ if [ -n "$SUBMIT_JOB" ]; then
   fi
 else
   say "Step 4/4 — submit skipped (no --submit). To run the job:"
-  printf '%s\n' "    scripts/deploy-sideload.sh --submit jobs/yolo-hummingcam-h00f.yaml"
+  printf '%s\n' "    scripts/deploy-sideload.sh --submit jobs/yolo-camera.yaml"
 fi
 
 echo

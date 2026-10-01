@@ -13,8 +13,8 @@ import seenstore  # noqa: E402
 # --- composite path (V2-Design §8.4) ----------------------------------------
 
 def test_seen_store_path_composition():
-    p = seenstore.seen_store_path("/local-cache", "human", "hummingcam", "top")
-    assert p == "/local-cache/.state/sage-yolo2/human/hummingcam/top/seen"
+    p = seenstore.seen_store_path("/local-cache", "human", "camera", "top")
+    assert p == "/local-cache/.state/sage-yolo2/human/camera/top/seen"
 
 
 def test_seen_store_path_lands_in_reserved_state():
@@ -26,7 +26,7 @@ def test_seen_store_path_lands_in_reserved_state():
 
 def test_two_consumer_ids_get_distinct_stores():
     a = seenstore.seen_store_path("/lc", "human", "cam0", "top")
-    b = seenstore.seen_store_path("/lc", "fast-hummers", "cam0", "top")
+    b = seenstore.seen_store_path("/lc", "fast-birds", "cam0", "top")
     assert a != b
 
 

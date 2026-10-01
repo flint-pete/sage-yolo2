@@ -9,16 +9,16 @@
 # (standard EXIF + full JSON in UserComment + SHA256 in ImageUniqueID) and
 # publish it into a per-stream bounded ring cache. This is what lets sage-yolo2
 # act as a PRODUCER of cropped detections that a downstream classifier (BioCLIP)
-# consumes exactly like an image-sampler2 frame.
+# consumes exactly like an media-sampler3 frame.
 #
-# VENDORED from image-sampler2 (metadata.py embed + cache.py ring/eviction),
+# VENDORED from media-sampler3 (metadata.py embed + cache.py ring/eviction),
 # per CROP-PRODUCER-Design.md OPEN DECISION -> (B) vendored copy (the same
 # precedent as save_match.py). Kept deliberately compatible with sage-yolo2's
 # READ side (consumer.py parse_v2_name / read_frame_metadata): a frame written
 # here MUST be readable there. Any divergence in the v2 format must be mirrored
 # in both. See references sync note in DOCKER-BUILD.md.
 #
-# Design invariants preserved from image-sampler2 cache.py 2.6:
+# Design invariants preserved from media-sampler3 cache.py 2.6:
 #   - per-stream ring at <root>/<cache-name>/<camera>/; caps per stream.
 #   - two independent caps (count, MB decimal 10^6), evict-on-EITHER.
 #   - EVICT BEFORE the new file joins; atomic tmp -> os.replace.
@@ -44,7 +44,7 @@ import piexif
 
 logger = logging.getLogger("sage-yolo2.crop_writer")
 
-SCHEMA_VERSION = "sage-img-1"          # MUST match image-sampler2 (BioCLIP reads it)
+SCHEMA_VERSION = "sage-img-1"          # MUST match media-sampler3 (BioCLIP reads it)
 V2_MARKER = "v2"
 BYTES_PER_MB = 1_000_000               # MB is decimal (10^6), per the v2 contract
 LOCAL_CACHE_DIR = "/local-cache"
@@ -84,7 +84,7 @@ def object_name_for(capture_ts_ns, vsn, camera):
 
 
 # --------------------------------------------------------------------------
-# EXIF / self-describing embed  (vendored from image-sampler2 metadata.py)
+# EXIF / self-describing embed  (vendored from media-sampler3 metadata.py)
 # --------------------------------------------------------------------------
 
 def sha256_hex(data):
@@ -114,7 +114,7 @@ def build_field_dict(*, vsn, node_id, job, task, plugin, camera,
 
     `source` (optional dict) carries the crop-producer additions: source_class,
     source_confidence, source_bbox, source_unique_id, detection_index. Kept as a
-    nested object so a plain image-sampler2 frame and a crop frame share the same
+    nested object so a plain media-sampler3 frame and a crop frame share the same
     base schema; a classifier reads `source` only when present.
     """
     fields = {
@@ -212,7 +212,7 @@ def read_back_fields(jpeg_bytes):
 
 
 # --------------------------------------------------------------------------
-# per-stream ring cache  (vendored from image-sampler2 cache.py)
+# per-stream ring cache  (vendored from media-sampler3 cache.py)
 # --------------------------------------------------------------------------
 
 def validate_cache_name(name):

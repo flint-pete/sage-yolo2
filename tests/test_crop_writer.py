@@ -58,7 +58,7 @@ def test_parse_ts_prefix_ignores_non_v2():
 
 def test_embed_reads_back():
     final, uid = crop_writer.embed_all(
-        _jpeg_bytes(), vsn="H00F", node_id="00004cbb", job="hummingcam",
+        _jpeg_bytes(), vsn="H00F", node_id="00004cbb", job="camera",
         task="sage-yolo2", plugin="reg/sage-yolo2:2.1.0", camera="top-crop-0",
         capture_ts_ns=1700000000000000000, upload_ts_ns=None,
         lat=None, lon=None, acquisition_path="opencv-reencoded")
@@ -75,7 +75,7 @@ def test_crop_readable_by_consumer(tmp_path):
     by sage-yolo2's own consumer.read_frame_metadata (== what BioCLIP uses)."""
     ts = 1700000000000000000
     final, uid = crop_writer.embed_all(
-        _jpeg_bytes(), vsn="H00F", node_id="00004cbb", job="hummingcam",
+        _jpeg_bytes(), vsn="H00F", node_id="00004cbb", job="camera",
         task="sage-yolo2", plugin="reg/sage-yolo2:2.1.0", camera="top-crop-0",
         capture_ts_ns=ts, upload_ts_ns=None, lat=41.88, lon=-87.63,
         acquisition_path="opencv-reencoded")
@@ -153,7 +153,7 @@ def test_no_caps_never_evicts():
 # --- 5. write_frame end-to-end on a tmp ring --------------------------------
 
 def test_write_frame_publishes_and_evicts(tmp_path):
-    sdir = crop_writer.stream_dir(str(tmp_path), "hummingcam-crops", "top-crop-0")
+    sdir = crop_writer.stream_dir(str(tmp_path), "camera-crops", "top-crop-0")
     # write 3 frames with cap=2 -> the oldest must be evicted, 2 remain.
     written = []
     for i, ts in enumerate((1000, 2000, 3000)):
@@ -174,7 +174,7 @@ def test_write_frame_publishes_and_evicts(tmp_path):
 
 
 def test_write_frame_e3_drop_writes_nothing(tmp_path):
-    sdir = crop_writer.stream_dir(str(tmp_path), "hummingcam-crops", "top-crop-0")
+    sdir = crop_writer.stream_dir(str(tmp_path), "camera-crops", "top-crop-0")
     final, _ = crop_writer.embed_all(
         _jpeg_bytes(200, 200), vsn="H00F", node_id="n", job="j", task="t",
         plugin="p", camera="top-crop-0", capture_ts_ns=1000,

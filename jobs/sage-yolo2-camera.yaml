@@ -1,13 +1,13 @@
 # ──────────────────────────────────────────────────────────────
 # sage-yolo2 — CACHE CONSUMER exemplar (H00F)
 #
-# The v2 architecture: image-sampler2 (PRODUCER) opens the camera ONCE and writes
+# The v2 architecture: media-sampler3 (PRODUCER) opens the camera ONCE and writes
 # frames into the shared on-node cache (/local-cache, from wes-local-cache-manager);
 # sage-yolo2 (CONSUMER) reads those frames and runs YOLO — it NEVER opens a camera.
 # One camera open, one decode, many possible consumers.
 #
-#   image-sampler2  --cache-name hummingcam --camera top   -> /local-cache/hummingcam/top/
-#   sage-yolo2      --source cache --input /local-cache/hummingcam/top
+#   media-sampler3  --cache-name camera --camera top   -> /local-cache/camera/top/
+#   sage-yolo2      --source cache --input /local-cache/camera/top
 #
 # Both pods mount the same host cache dir. sage-yolo2 fails fast if the mount is
 # absent (no wes-local-cache-manager, or no volume) rather than silently do nothing.
@@ -20,20 +20,20 @@
 # Image: ECR app beckman/sage-yolo2:2.0.0  (build+push via ECR Register-and-Build)
 #
 # Submit (write-scoped token):
-#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/sage-yolo2-hummingcam-h00f.yaml
+#   sesctl --server https://es.sagecontinuum.org --token "$SES_USER_TOKEN" create -f jobs/sage-yolo2-camera.yaml
 #   sesctl ... submit -j <returned-id>
 # ──────────────────────────────────────────────────────────────
-name: sage-yolo2-hummingcam
+name: sage-yolo2-camera
 plugins:
-  # PRODUCER: one camera open, frames -> /local-cache/hummingcam/top
-  - name: image-sampler2
+  # PRODUCER: one camera open, frames -> /local-cache/camera/top
+  - name: media-sampler3
     pluginSpec:
-      image: registry.sagecontinuum.org/beckman/image-sampler2:latest
+      image: registry.sagecontinuum.org/beckman/media-sampler3:latest
       args:
         - "--stream"
         - "top_camera"
         - "--cache-name"
-        - "hummingcam"
+        - "camera"
         - "--camera"
         - "top"
         - "--interval"
@@ -49,7 +49,7 @@ plugins:
         - "--source"
         - "cache"
         - "--input"
-        - "/local-cache/hummingcam/top"
+        - "/local-cache/camera/top"
         - "--every"
         - "5s"
         - "--select-every"
@@ -72,6 +72,6 @@ nodes:
   H00F: true
 scienceRules:
   - "schedule(sage-yolo2): cronjob('sage-yolo2', '*/10 * * * *')"
-  - "schedule(image-sampler2): cronjob('image-sampler2', '*/10 * * * *')"
+  - "schedule(media-sampler3): cronjob('media-sampler3', '*/10 * * * *')"
 successcriteria:
   - WallClock('30day')

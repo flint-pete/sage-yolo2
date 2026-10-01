@@ -135,7 +135,7 @@ def test_no_crop_rules_is_noop():
 
 def test_two_birds_two_crops(tmp_path, monkeypatch):
     monkeypatch.setattr(consumer, "resolve_cache_root", lambda explicit=None: str(tmp_path))
-    monkeypatch.setenv("WAGGLE_JOB_NAME", "hummingcam")
+    monkeypatch.setenv("WAGGLE_JOB_NAME", "camera")
     p = FakePlugin()
     dets = [
         {"class": "bird", "confidence": 0.9, "bbox": [10, 10, 90, 90]},
@@ -152,7 +152,7 @@ def test_two_birds_two_crops(tmp_path, monkeypatch):
     assert crop_counts[0][2] == 1700000000000000000
     # two crop streams exist, each with one readable v2 crop
     for idx in (0, 1):
-        sdir = os.path.join(str(tmp_path), "hummingcam-crops", "top-crop-%d" % idx)
+        sdir = os.path.join(str(tmp_path), "camera-crops", "top-crop-%d" % idx)
         frame = consumer.newest_frame(sdir)
         assert frame is not None
         m = consumer.read_frame_metadata(frame)

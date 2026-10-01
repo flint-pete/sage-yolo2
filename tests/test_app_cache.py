@@ -114,7 +114,7 @@ def _write_frame(path, ts, vsn="W123", camera="top", uid="uid", lat=None, lon=No
 # --- the wake-loop integration ----------------------------------------------
 
 def test_cache_wake_publishes_frame_anchored_and_marks_seen(tmp_path):
-    cam_dir = tmp_path / "hummingcam" / "top"
+    cam_dir = tmp_path / "camera" / "top"
     cam_dir.mkdir(parents=True)
     _write_frame(str(cam_dir / "100-v2-W123-top.jpg"), 100, uid="uidA", lat=41.0, lon=-87.0)
     _write_frame(str(cam_dir / "200-v2-W123-top.jpg"), 200, uid="uidB")
@@ -181,5 +181,5 @@ def test_consumer_id_appid_fallback_warns(monkeypatch, caplog):
 
 
 def test_parse_cache_input_splits_stream():
-    cn, cam = app.parse_cache_input("/local-cache/hummingcam/top", "/local-cache")
-    assert (cn, cam) == ("hummingcam", "top")
+    cn, cam = app.parse_cache_input("/local-cache/camera/top", "/local-cache")
+    assert (cn, cam) == ("camera", "top")

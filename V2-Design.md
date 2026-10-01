@@ -6,7 +6,7 @@ copied in verbatim as the starting point) into the **first exemplar plugin built
 the new core WES / pywaggle2 features**.
 
 The thesis in one line: sage-yolo2 stops opening its own camera and instead
-**consumes frames that image-sampler2 produced into the shared `/local-cache`**, and
+**consumes frames that media-sampler3 produced into the shared `/local-cache`**, and
 it **geotags/attributes its output via `get_node_info()`** instead of publishing
 counts with no location.
 
@@ -21,7 +21,7 @@ sage-yolo2 is the consumer-side proof that these three shipped pieces work toget
 | Node identity in every pod | `wes-nodeinfo-injection` (WES) | reads its own VSN/GPS/mobility from env |
 | `get_node_info()` reader | `pywaggle2-nodeinfo` (library) | clean `NodeInfo` (sentinel-normalized) |
 | Bounded shared `/local-cache` | `wes-local-cache-manager` (WES) | the disk it reads producer frames from |
-| Producer of frames | `image-sampler2` (plugin) | the upstream that fills the cache |
+| Producer of frames | `media-sampler3` (plugin) | the upstream that fills the cache |
 
 ---
 
@@ -52,17 +52,17 @@ annotated image. Two gaps vs. the new architecture:
 > (`--source {cache,stream,snapshot,image-dir}` + `--input`, `--every`,
 > `--select-every`, …). The *semantics* below are current; only the spelling changed.
 
-A new acquisition mode that reads the **newest** frame(s) image-sampler2 wrote to a
-per-stream cache dir, instead of opening a camera. This mirrors image-sampler2's own
+A new acquisition mode that reads the **newest** frame(s) media-sampler3 wrote to a
+per-stream cache dir, instead of opening a camera. This mirrors media-sampler3's own
 `--from-cache` consumer path (already implemented there — reuse the pattern).
 
-The contract sage-yolo2 must honor (verified from image-sampler2's `cache.py` /
+The contract sage-yolo2 must honor (verified from media-sampler3's `cache.py` /
 `metadata.py`):
 - **Cache root:** `/local-cache` (default), overridable via env; provided by
   `wes-local-cache-manager`. Fail fast with a clear message if absent (mirror
-  image-sampler2's `assert_cache_root_available` behavior — no silent fallback).
+  media-sampler3's `assert_cache_root_available` behavior — no silent fallback).
 - **Per-stream dir:** `<cache-root>/<cache-name>/<camera>/` — the producer chooses
-  `<cache-name>` (e.g. the image-sampler2 job's cache name) and `<camera>`.
+  `<cache-name>` (e.g. the media-sampler3 job's cache name) and `<camera>`.
   sage-yolo2 is *pointed at* that dir; it does not invent the layout.
 - **Filenames:** `<capture_ts_ns>-v2-<vsn>-<camera>.jpg`. The capture timestamp is
   the authoritative ordering key (NOT mtime). "Newest" = largest `capture_ts_ns`.
@@ -106,7 +106,7 @@ Use it to:
 ## 3. Data flow (target)
 
 ```
-  image-sampler2 (PRODUCER)                         sage-yolo2 (CONSUMER)
+  media-sampler3 (PRODUCER)                         sage-yolo2 (CONSUMER)
   ─ opens camera once                               ─ NO camera
   ─ writes <ts>-v2-<vsn>-<cam>.jpg   ──/local-cache──▶ reads newest -v2- frame
     into <root>/<cache-name>/<cam>/                 ─ get_node_info() for vsn/gps
@@ -122,10 +122,10 @@ One camera open, one decode, many consumers. That is the architectural win.
 ## 4. Concrete change list (to refine into a staged plan)
 
 1. **Add `--from-cache <dir>` acquisition mode** — scan the per-stream dir, pick the
-   newest committed `-v2-` frame, load it. (New helper; mirror image-sampler2.)
+   newest committed `-v2-` frame, load it. (New helper; mirror media-sampler3.)
 2. **Vendor or depend on `read_node_info()`** — decide vendoring vs. requirements
    (see §5). Wire `NodeInfo` into publish + upload attribution + geotag.
-3. **Cache-root resolution + fail-fast** — reuse image-sampler2's resolve/assert
+3. **Cache-root resolution + fail-fast** — reuse media-sampler3's resolve/assert
    semantics (no silent fallback).
 4. **Filename/timestamp parsing** — parse `<ts>-v2-<vsn>-<cam>` to get capture_ts +
    vsn + camera; use capture_ts as the record's observation time (not now()).
@@ -133,7 +133,7 @@ One camera open, one decode, many consumers. That is the architectural win.
 6. **Publish contract** — add vsn/node_id/lat/lon to the record; keep existing count
    topics.
 7. **Docs + jobs** — a new `jobs/` YAML that mounts `/local-cache` and runs the pair
-   (image-sampler2 producing + sage-yolo2 consuming); update overview/README.
+   (media-sampler3 producing + sage-yolo2 consuming); update overview/README.
 8. **Tests** — feed a synthetic cache dir of `-v2-` frames; assert newest selection,
    ts parsing, node-info attribution, fail-fast on missing cache.
 
@@ -150,7 +150,7 @@ One camera open, one decode, many consumers. That is the architectural win.
 2. **Vendor `read_node_info()`, don't pip-depend.** Vendor `node_info_env.py` (single
    file, no deps) byte-identical to `pywaggle2-nodeinfo`, and note the sync
    obligation — until pywaggle2 is pip-installable upstream. Keeps the plugin
-   self-contained, matching image-sampler2's pattern.
+   self-contained, matching media-sampler3's pattern.
 3. **Explicit, config-driven cache path — NO discovery for v1.** sage-yolo2 is told
    where the cache is (`--from-cache <root>/<cache-name>/<camera>`, or
    `--cache-name` + `--camera`); the producer and consumer agree on `<cache-name>` by
@@ -173,7 +173,7 @@ One camera open, one decode, many consumers. That is the architectural win.
 ## 6. Success criteria (the exemplar bar)
 
 sage-yolo2 v1 is "done as an exemplar" when, on H00F:
-- image-sampler2 produces `-v2-` frames into `/local-cache`,
+- media-sampler3 produces `-v2-` frames into `/local-cache`,
 - sage-yolo2 consumes the newest frame WITHOUT opening a camera,
 - publishes counts attributed with the injected VSN and (when known) GPS,
 - and the whole loop is bounded by `wes-local-cache-manager` —
@@ -188,7 +188,7 @@ hardware, with a second plugin reading a producer's cache across the shared moun
 The new WES/pywaggle2 scaffolding means a cached frame is **self-describing** — it
 carries maximum metadata the camera + producer could provide. sage-yolo2 should USE
 that, not just decode pixels. Concretely, every cached `-v2-` JPEG carries (verified
-from image-sampler2/metadata.py):
+from media-sampler3/metadata.py):
 
 - **Standard EXIF** any tool reads: `DateTimeOriginal` (capture time), `Make`
   (camera or acquisition path), `Model` (VSN), `Software` (producing plugin+version),
@@ -284,7 +284,7 @@ sage-yolo2 must read metadata. These are pre-decided for Stage 2:
 The old sage-yolo was a **self-sampler**: `--interval` seconds between its own
 captures, `--max-runtime` to bound a scheduled run (e.g. 10 min/hr). sage-yolo2 is a
 **consumer of an already-produced set** — a fundamentally different model. It does
-NOT capture; it SELECTS from what image-sampler2 already put in the cache. The
+NOT capture; it SELECTS from what media-sampler3 already put in the cache. The
 semantics below make "how often it runs, and how many frames it processes" tight and
 unambiguous.
 
@@ -377,7 +377,7 @@ The **batch window** = frames produced since the last successful wake (bounded b
   - `<cache-name>/<camera>` — which producer stream it consumes (already the cache's
     own namespacing; keeps memory separate when one YOLO watches two caches).
   Rationale: identity = (which instance) × (what it consumes). `WAGGLE_JOB_NAME`/
-  `WAGGLE_TASK_NAME` are the same env image-sampler2 uses for provenance, so the
+  `WAGGLE_TASK_NAME` are the same env media-sampler3 uses for provenance, so the
   identifier is consistent across the producer/consumer pair.
 - **Consuming is NON-destructive** — the frame stays in the cache (Layer-2 manager
   owns eviction). Seen-memory is the consumer's private bookmark, not a delete.
@@ -429,7 +429,7 @@ safe.
 - **Backlog on first run (`all-unseen` over a full cache):** `--max-batch` caps the
   first wake; subsequent wakes drain the rest — never a single unbounded storm.
 - **Frame evicted by Layer-2 between selection and read:** treat as vanished (skip,
-  like image-sampler2 handles mid-scan disappearance); don't crash.
+  like media-sampler3 handles mid-scan disappearance); don't crash.
 - **`*.tmp` in-flight producer writes:** never candidates (only committed `-v2-`).
 - **Duplicate unique_id across cameras (shouldn't happen):** key on
   `(camera, unique_id)` if we ever consume multiple cameras; single-camera v1 keys on
@@ -454,23 +454,23 @@ the default.
 
 ### 8.8 Worked example: two consumers, one cache
 
-Two YOLO instances reading the SAME image-sampler2 stream
-(`/local-cache/hummingcam/top`), doing different jobs at different cadences:
+Two YOLO instances reading the SAME media-sampler3 stream
+(`/local-cache/camera/top`), doing different jobs at different cadences:
 
 ```
 # Count people every 15 minutes
-app.py --from-cache /local-cache/hummingcam/top --consumer-id human \
+app.py --from-cache /local-cache/camera/top --consumer-id human \
        --classes person --batch-interval 15m --select newest
 
-# Count hummingbirds every 2 minutes
-app.py --from-cache /local-cache/hummingcam/top --consumer-id fast-hummers \
+# Count birds every 2 minutes
+app.py --from-cache /local-cache/camera/top --consumer-id fast-birds \
        --classes bird --batch-interval 2m --select newest
 ```
 
 Resulting seen-stores (separate → no clobbering):
 ```
-/local-cache/.state/sage-yolo2/human/hummingcam/top/seen
-/local-cache/.state/sage-yolo2/fast-hummers/hummingcam/top/seen
+/local-cache/.state/sage-yolo2/human/camera/top/seen
+/local-cache/.state/sage-yolo2/fast-birds/camera/top/seen
 ```
 
 The three knobs are independent: `--consumer-id` = *identity* (whose memory),
@@ -488,13 +488,13 @@ processed once), give them a SHARED `--consumer-id` (see §8.6).
 ## 9. Staged implementation plan
 
 Each stage ends GREEN (offline tests pass) before the next. Mirrors how
-image-sampler2 was built. Code lives in `app.py` + new small modules; keep KISS/DRY.
+media-sampler3 was built. Code lives in `app.py` + new small modules; keep KISS/DRY.
 
 - **Stage 0 — baseline & scaffolding.** DONE: verbatim sage-yolo copy + this design.
   Add a `consumer.py` module stub + test harness wiring. Rename repo self-references
   sage-yolo → sage-yolo2 (docs/jobs). Gate: existing tests still pass.
 - **Stage 1 — cache read + fail-fast.** `--from-cache` dir scan, parse
-  `<ts>-v2-<vsn>-<cam>` names, resolve+assert cache root (reuse image-sampler2
+  `<ts>-v2-<vsn>-<cam>` names, resolve+assert cache root (reuse media-sampler3
   semantics). Select `newest`. Gate: unit tests over a synthetic cache dir (newest
   pick, ts parse, empty-dir vs absent-root, ignore `*.tmp`).
 - **Stage 2 — frame-anchored metadata (§7, §7.1–7.2).** Read EXIF/UserComment JSON;
@@ -507,7 +507,7 @@ image-sampler2 was built. Code lives in `app.py` + new small modules; keep KISS/
 - **Stage 3 — node identity (§2.2).** Vendor the pywaggle2 reader at REPO ROOT as
   `node_info.py` (content byte-identical to pywaggle2-nodeinfo; VENDORED.md notes the
   sync obligation) — NOT under `waggle/`, which would shadow installed pywaggle and
-  break `from waggle.plugin import Plugin` (same collision image-sampler2 avoided via
+  break `from waggle.plugin import Plugin` (same collision media-sampler3 avoided via
   `nodemeta.py`). Wire `get_node_info()`, cross-check vs frame. Gate: identity
   attribution + never-fabricate-location tests.
 - **Stage 4 — seen-memory (§8.4).** Seen-store read/add/prune keyed on unique_id;
@@ -517,7 +517,7 @@ image-sampler2 was built. Code lives in `app.py` + new small modules; keep KISS/
   `--max-frames`, `--all-unseen`; the wake loop. Gate: each selection case over a
   synthetic multi-frame cache; edge cases in 8.6; `--max-frames` cap; empty-window
   sleep.
-- **Stage 6 — jobs + docs + Docker.** New `jobs/` YAML running image-sampler2
+- **Stage 6 — jobs + docs + Docker.** New `jobs/` YAML running media-sampler3
   (producer) + sage-yolo2 (consumer) as a pair mounting `/local-cache`; overview/
   README rewrite for the consumer model; Dockerfile deps. Gate: docs consistent;
   image builds.
@@ -642,10 +642,10 @@ Argument groups make the shape legible at a glance:
 
 ```
 # people every 15 min
-app.py --source cache --input /local-cache/hummingcam/top --consumer-id human \
+app.py --source cache --input /local-cache/camera/top --consumer-id human \
        --classes person --every 15m
-# hummingbirds every 2 min
-app.py --source cache --input /local-cache/hummingcam/top --consumer-id fast-hummers \
+# birds every 2 min
+app.py --source cache --input /local-cache/camera/top --consumer-id fast-birds \
        --classes bird --every 2m
 ```
 v1 exemplar default (§8.7) becomes: `--source cache --every 0 --select-every 0`

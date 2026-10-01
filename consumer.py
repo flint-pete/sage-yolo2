@@ -2,11 +2,11 @@
 """sage-yolo2 -- cache consumer (Stage 1: read + fail-fast).
 
 sage-yolo2 does NOT open a camera in its production path. It CONSUMES frames that
-image-sampler2 (the producer) wrote into the shared WES ``/local-cache``. This
+media-sampler3 (the producer) wrote into the shared WES ``/local-cache``. This
 module is the read side of that contract; it is deliberately pure (no cv2, YOLO, or
 pywaggle imports) so it is unit-testable offline.
 
-The frame contract is image-sampler2's v2 cache layout (verified against its
+The frame contract is media-sampler3's v2 cache layout (verified against its
 ``cache.py`` / ``metadata.py``):
 
   * cache root      : ``/local-cache`` (default), provided by wes-local-cache-manager
@@ -19,7 +19,7 @@ Stage 1 implements: resolve the cache root, FAIL FAST if it is absent (no silent
 fallback -- a missing cache means the node lacks wes-local-cache-manager or the mount),
 scan a per-stream dir, and select the single newest committed frame.
 
-Stage 2 adds read_frame_metadata(): the frame is self-describing (image-sampler2
+Stage 2 adds read_frame_metadata(): the frame is self-describing (media-sampler3
 embeds a full JSON blob in EXIF UserComment plus standard tags). We read the
 AUTHORITATIVE fields from the UserComment JSON -- capture_ts, unique_id, vsn, gps
 (signed floats), camera, acquisition_path -- so a published detection is
@@ -37,7 +37,7 @@ import re
 logger = logging.getLogger("sage-yolo2.consumer")
 
 # Default shared cache mount, provided by wes-local-cache-manager. Overridable via
-# the same env var image-sampler2 honours, so producer and consumer stay in sync.
+# the same env var media-sampler3 honours, so producer and consumer stay in sync.
 LOCAL_CACHE_DIR = "/local-cache"
 CACHE_ROOT_ENV = "IS2_CACHE_ROOT"
 
@@ -80,7 +80,7 @@ def resolve_cache_root(explicit=None):
 _MISSING_CACHE_MSG = (
     "cache directory %(dir)r is not present (or not a readable directory) on this "
     "node.\n"
-    "  sage-yolo2 CONSUMES frames that image-sampler2 wrote to the shared "
+    "  sage-yolo2 CONSUMES frames that media-sampler3 wrote to the shared "
     "%(default)s cache;\n"
     "  it does not open a camera in this mode. That directory is provided by the "
     "'wes-local-cache-manager'\n"
@@ -170,7 +170,7 @@ def newest_frame(cache_dir):
 
 
 # ── frame metadata (Stage 2) ─────────────────────────────────────────
-# image-sampler2 embeds a full JSON blob in the EXIF UserComment tag, prefixed with
+# media-sampler3 embeds a full JSON blob in the EXIF UserComment tag, prefixed with
 # the 8-byte Exif character-code marker. The JSON is the AUTHORITATIVE source for
 # every field (V2-Design §7.1-7.2): signed lat/lon floats, unique_id, vsn, camera,
 # acquisition_path. Standard EXIF/GPS tags are the tool-friendly view and are NOT

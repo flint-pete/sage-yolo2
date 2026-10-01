@@ -108,7 +108,7 @@ def _two_bird_frame():
 
 def test_offline_e2e_detect_crop_consume(tmp_path, monkeypatch):
     monkeypatch.setattr(consumer, "resolve_cache_root", lambda explicit=None: str(tmp_path))
-    monkeypatch.setenv("WAGGLE_JOB_NAME", "hummingcam")
+    monkeypatch.setenv("WAGGLE_JOB_NAME", "camera")
     monkeypatch.setenv("WAGGLE_PLUGIN_NAME", "registry.sagecontinuum.org/beckman/sage-yolo2")
     monkeypatch.setenv("WAGGLE_PLUGIN_VERSION", "2.1.0")
 
@@ -140,7 +140,7 @@ def test_offline_e2e_detect_crop_consume(tmp_path, monkeypatch):
             "color": (0, 0, 200)},          # RGB blue
     }
     for idx, exp in expected.items():
-        sdir = os.path.join(str(tmp_path), "hummingcam-crops", "top-crop-%d" % idx)
+        sdir = os.path.join(str(tmp_path), "camera-crops", "top-crop-%d" % idx)
         frames = consumer.scan_frames(sdir)
         assert len(frames) == 1, "one crop per stream (idx=%d)" % idx
         m = consumer.read_frame_metadata(frames[0])
@@ -179,4 +179,4 @@ def test_offline_e2e_off_by_default_writes_nothing(tmp_path, monkeypatch):
                                  crop_rules=[])
     assert n == 0
     assert not any(x[0] == "env.crop.count" for x in plugin.published)
-    assert not os.path.exists(os.path.join(str(tmp_path), "hummingcam-crops"))
+    assert not os.path.exists(os.path.join(str(tmp_path), "camera-crops"))

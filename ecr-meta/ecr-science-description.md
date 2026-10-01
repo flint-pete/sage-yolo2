@@ -28,13 +28,13 @@ classes of interest (e.g. `--classes person,car,bird`).
 ## Architecture: producer → shared cache → consumer
 
 In production sage-yolo2 does **not open a camera**. A producer plugin
-(`image-sampler2`) opens the camera once and writes self-describing JPEG frames
+(`media-sampler3`) opens the camera once and writes self-describing JPEG frames
 into a shared `/local-cache` directory provided by the `wes-local-cache-manager`
 WES component. sage-yolo2 is pointed at a per-stream directory in that cache,
 selects frames, runs YOLO inference, and publishes counts.
 
 ```
-  image-sampler2 (PRODUCER)                         sage-yolo2 (CONSUMER)
+  media-sampler3 (PRODUCER)                         sage-yolo2 (CONSUMER)
   - opens camera once                               - NO camera
   - writes <ts>-v2-<vsn>-<cam>.jpg   --/local-cache--> reads committed -v2- frames
     into <root>/<cache-name>/<cam>/                 - get_node_info() for vsn/gps

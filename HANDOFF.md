@@ -9,7 +9,7 @@ verified deploy path, and — importantly — the changes made **outside this re
   (offline: consumer / selection / seenstore / identity units + cache-wake
   integration + save-match).
 - Architecture: **pywaggle2 cache consumer**. Production path `--source cache`
-  reads `-v2-` frames a producer (`image-sampler2`) wrote to the shared WES
+  reads `-v2-` frames a producer (`media-sampler3`) wrote to the shared WES
   `/local-cache`; standalone `stream`/`snapshot`/`image-dir` remain as fallbacks.
   Full design in `V2-Design.md`; usage in `README.md`.
 - Metadata is current for v2: `sage.yaml` (name `sage-yolo2`, v2.0.0, v2 inputs)
@@ -24,12 +24,12 @@ verified deploy path, and — importantly — the changes made **outside this re
   producer+consumer `pluginctl run` recipe is in
   **DOCKER-BUILD.md → "v2 cache-consumer deploy"**.
 - `pluginctl run` needs NO ECR catalog record. The **SES** path
-  (`sesctl create/submit`, job `jobs/sage-yolo2-hummingcam-h00f.yaml`) DOES
+  (`sesctl create/submit`, job `jobs/sage-yolo2-camera.yaml`) DOES
   validate against the ECR catalog, which for `beckman/sage-yolo2` has **not**
   been created yet (deferred; run mode is side-load-run for now).
 
 ## Verified on H00F (Thor/arm64), 2026-07-14
-Live image-sampler2 producer → shared cache → sage-yolo2 consumer. Data API
+Live media-sampler3 producer → shared cache → sage-yolo2 consumer. Data API
 confirmed `env.count.total` published **frame-anchored** (record ts = frame
 CAPTURE ts, not inference ts), `meta.vsn=H00F`, `meta.node=00004cbb4701d16c`,
 `meta.plugin=.../beckman/sage-yolo2:2.0.0`. Seen-store persisted 5 `unique_id`s;
@@ -41,8 +41,8 @@ anything change that wasn't in sage-yolo2?":
 
 1. **Three SES jobs SUSPENDED** (to free the GPU; owner beckman) — left suspended
    per Pete's instruction at this stopping point:
-   - `yolo-hummingcam` (job 5679)
-   - `bioclip-hummingcam` (job 5667)
+   - `yolo-camera` (job 5679)
+   - `bioclip-camera` (job 5667)
    - `insect-bioclip` (job 5668)
    Resume with `sesctl --server https://es.sagecontinuum.org --token <SES_TOKEN>
    submit -j <id>` for each (run from the node).
@@ -56,16 +56,16 @@ anything change that wasn't in sage-yolo2?":
    run uses it without pulling (imagePullPolicy=IfNotPresent).
 
 3. **Transient, already cleaned:** the e2e test cache
-   (`/media/plugin-data/local-cache/hummingcam` + `.state`) and the root-only
-   camera env file (`/root/hummingcam.env`) were removed after the test.
+   (`/media/plugin-data/local-cache/camera` + `.state`) and the root-only
+   camera env file (`/root/camera.env`) were removed after the test.
 
-No sibling repo (image-sampler2, wes-local-cache-manager, wes-nodeinfo-injection,
+No sibling repo (media-sampler3, wes-local-cache-manager, wes-nodeinfo-injection,
 pywaggle2-nodeinfo) needed a code change for this work — they were already at
 their committed heads and functioned as-is. (Credential note, corrected: an
-earlier draft claimed image-sampler2 logs the camera password — it does NOT.
+earlier draft claimed media-sampler3 logs the camera password — it does NOT.
 `acquire.py::_redact()` replaces the `password=` value with `***` before logging
 the snapshot URL, and the password is env-only (`CAMERA_PASSWORD`), never on argv.
 The `&password=***` seen in its pod logs is the plugin's OWN redaction. The real,
 separate cleartext-cred exposure is in the old v1 `flint-pete/sage-yolo` job YAMLs
-`--snapshot-url` arg — a different plugin's v1 files, not image-sampler2.)
+`--snapshot-url` arg — a different plugin's v1 files, not media-sampler3.)
 

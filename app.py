@@ -225,8 +225,8 @@ def main():
         description="sage-yolo2 — YOLO11x object counter, pywaggle2 CACHE CONSUMER",
         epilog="""
 Examples:
-  # Production: consume frames image-sampler2 wrote to the shared cache (NO camera)
-  python3 app.py --source cache --input /local-cache/hummingcam/top --classes bird
+  # Production: consume frames media-sampler3 wrote to the shared cache (NO camera)
+  python3 app.py --source cache --input /local-cache/camera/top --classes bird
 
   # Local testing: a directory of images, no node/cache/camera
   python3 app.py --source image-dir --input ./tests/test-images --every 0

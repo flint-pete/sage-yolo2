@@ -8,11 +8,11 @@ the existing bird counting AND crops each detected bird into the local-cache.
 
 - Node H00F (Thor/arm64), `ssh beckman@node-H00F.sage`, passwordless sudo.
 - Running (pluginctl-managed), both up 23h:
-  - `hummingcam-producer` — image-sampler2, writes frames to
-    `/local-cache/hummingcam/top` (`--cache-name hummingcam --name top`, cap 500).
+  - `media-producer` — media-sampler3, writes frames to
+    `/local-cache/camera/top` (`--cache-name camera --name top`, cap 500).
     ** MUST NOT TOUCH — it feeds the whole pipeline.**
   - `sage-yolo2-consumer` — 2.0.0, args:
-    `--source cache --input /local-cache/hummingcam/top --every 10m --all-unseen
+    `--source cache --input /local-cache/camera/top --every 10m --all-unseen
      --max-frames 0 --model yolo11x.pt --conf-thres 0.25 --classes bird
      --save-match bird:0.4`, resources `limit.memory=16Gi,request.memory=4Gi`,
     `-v /media/plugin-data/local-cache:/local-cache`. **This is what we replace.**
@@ -36,7 +36,7 @@ the existing bird counting AND crops each detected bird into the local-cache.
    (This is the long step — CUDA base, ~10 GiB image, several minutes.)
 
 3. **Stop the old consumer ONLY.** `sudo pluginctl rm sage-yolo2-consumer`.
-   Leave `hummingcam-producer` running. Confirm producer still Running and the
+   Leave `media-producer` running. Confirm producer still Running and the
    consumer is gone (`pluginctl ps`).
 
 4. **Launch 2.1.0** with the SAME counting args + the crop flags added:
@@ -45,14 +45,14 @@ the existing bird counting AND crops each detected bird into the local-cache.
      --selector zone=core \
      --resource limit.memory=16Gi,request.memory=4Gi \
      -v /media/plugin-data/local-cache:/local-cache \
-     -e WAGGLE_JOB_NAME=hummingcam -e WAGGLE_TASK_NAME=sage-yolo2 \
+     -e WAGGLE_JOB_NAME=camera -e WAGGLE_TASK_NAME=sage-yolo2 \
      registry.sagecontinuum.org/beckman/sage-yolo2:2.1.0 -- \
-     --source cache --input /local-cache/hummingcam/top \
+     --source cache --input /local-cache/camera/top \
      --every 10m --all-unseen --max-frames 0 \
      --model yolo11x.pt --conf-thres 0.25 --classes bird \
      --save-match "bird:0.4" \
      --crop-match "bird:0.5" --crop-padding 0.15 \
-     --crop-cache-name hummingcam-crops \
+     --crop-cache-name camera-crops \
      --crop-max-count 500 --crop-max-mb 500
    ```
    Rationale for the crop params:
@@ -60,9 +60,9 @@ the existing bird counting AND crops each detected bird into the local-cache.
      0.4 save threshold: only crop birds we're fairly sure are birds, since crops
      feed a classifier).
    - `--crop-padding 0.15`, `--crop-min-px 32` (default) — design defaults.
-   - `--crop-cache-name hummingcam-crops` — crops land in
-     `/local-cache/hummingcam-crops/top-crop-<idx>/`, a NEW dir separate from the
-     raw `hummingcam` stream, so a future BioCLIP consumer reads only crops.
+   - `--crop-cache-name camera-crops` — crops land in
+     `/local-cache/camera-crops/top-crop-<idx>/`, a NEW dir separate from the
+     raw `camera` stream, so a future BioCLIP consumer reads only crops.
    - Rings 500/500 — same as the raw cache; safe default until a consumer's drain
      cadence is known.
 
@@ -70,7 +70,7 @@ the existing bird counting AND crops each detected bird into the local-cache.
    - `pluginctl ps` → consumer Running.
    - Logs show `crop-producer ON: rules=bird:0.5 ...` at startup (proves the new
      flag path is active) and the model loaded.
-   - On the next bird: log line `Produced N crop(s) into hummingcam-crops/top-crop-*`.
+   - On the next bird: log line `Produced N crop(s) into camera-crops/top-crop-*`.
    - `env.count.total` still publishing (counting unbroken) via the data API.
 
 6. **Let it run overnight.** Every 10 min it wakes, counts, and crops any bird.
@@ -78,7 +78,7 @@ the existing bird counting AND crops each detected bird into the local-cache.
 ## Morning verification (what I'll collect for Pete)
 
 - `pluginctl ps` uptime + restart count (0 = clean).
-- Crop cache: `ls /local-cache/hummingcam-crops/*/` counts + a sample crop's
+- Crop cache: `ls /local-cache/camera-crops/*/` counts + a sample crop's
   metadata read-back (v2 name, capture_ts, `source{}` provenance) to prove the
   crops are valid and frame-anchored.
 - Data API: `env.count.*` (counting still works) and `env.crop.count` (crops
@@ -90,7 +90,7 @@ the existing bird counting AND crops each detected bird into the local-cache.
 
 - Only `sage-yolo2-consumer` is touched; producer untouched; no SES jobs resumed;
   plebbyd's 5606 untouched.
-- Crops write to a NEW cache dir — cannot corrupt the raw `hummingcam` stream.
+- Crops write to a NEW cache dir — cannot corrupt the raw `camera` stream.
 - Off-nominal rollback: `sudo pluginctl rm sage-yolo2-consumer` then re-run the
   2.0.0 line (image still imported) — one command, back to prior state.
 - The 2.0.0 image stays in k3s (not deleted), so rollback needs no rebuild.

@@ -2,7 +2,7 @@
 """Unit tests for consumer.py frame metadata (Stage 2).
 
 Builds REAL v2 JPEGs with a producer-format UserComment (ASCII prefix + compact JSON)
-via piexif -- the same mechanism image-sampler2 uses -- so these tests prove the
+via piexif -- the same mechanism media-sampler3 uses -- so these tests prove the
 reader round-trips the producer's embed. Requires Pillow + piexif (installed by the
 Makefile test venv).
 """
@@ -33,7 +33,7 @@ def _write_v2_jpeg(path, *, capture_ts_ns, vsn="W123", camera="top",
         return path
     fields = {
         "schema_version": "sage-img-1", "vsn": vsn, "node_id": node_id,
-        "job": "sage", "task": "image-sampler2", "plugin": "reg/is2:0.5.1",
+        "job": "sage", "task": "media-sampler3", "plugin": "reg/is2:0.5.1",
         "camera": camera, "capture_timestamp_ns": capture_ts_ns,
         "upload_timestamp_ns": None, "unique_id": unique_id,
         "object_name": "%d-v2-%s-%s.jpg" % (capture_ts_ns, vsn, camera),
