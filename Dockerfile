@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # install a fresh opencv-python-headless matching the current numpy.
 RUN pip uninstall -y opencv-python opencv-python-headless 2>/dev/null; \
     rm -rf /usr/local/lib/python3.*/dist-packages/cv2* && \
-    pip install --no-cache-dir -c /tmp/constraints.txt opencv-python-headless>=4.8.0
+    pip install --no-cache-dir -c /tmp/constraints.txt "opencv-python-headless==4.11.0.86"
 
 # Pre-download default model weights into the image
 # Layer order matters: model weights change rarely, app.py changes often.
