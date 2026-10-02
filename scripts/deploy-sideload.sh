@@ -3,17 +3,19 @@
 # deploy-sideload.sh — one-command side-load deploy for this Sage plugin on Thor.
 #
 # WHY THIS EXISTS
-#   The ECR portal "Register and Build" path cannot build this NVIDIA/CUDA-base
-#   plugin yet: the pipeline cross-builds linux/arm64 under QEMU on x86 and
-#   crashes on the CUDA base (qemu signal 6 / exit 134). That's Infra #3, still
-#   open (the /proc/acpi runc bug, Infra #2, IS fixed). Until a native arm64
-#   build node lands, the WORKING deploy path is: build natively on Thor (arm64,
-#   no QEMU) → import into k3s containerd → register catalog metadata so SES
-#   validates → (optionally) create+submit the SES job. SES pods use
+#   The ECR portal "Register and Build" path cannot build the NVIDIA/CUDA-base
+#   plugins (sage-yolo2, sage-bioclip2) yet: the pipeline cross-builds linux/arm64
+#   under QEMU on x86 and crashes on the CUDA base (qemu signal 6 / exit 134).
+#   That's Infra #3, still open (the /proc/acpi runc bug, Infra #2, IS fixed).
+#   CPU-only plugins (sage-birdnet2) could use ECR, but this side-load path is used
+#   for all three so they deploy the same way. The path: build natively on Thor
+#   (arm64, no QEMU) → import into k3s containerd → (optionally) register catalog
+#   metadata so SES validates → (optionally) create+submit the SES job. Pods use
 #   imagePullPolicy=IfNotPresent, so a locally-imported image under the exact
 #   registry-qualified tag is used without any registry pull.
 #
-#   This script wraps that chore. It reads name/namespace/version straight from
+#   This script is IDENTICAL in sage-yolo2, sage-bioclip2 and sage-birdnet2 —
+#   change all three together. It reads name/namespace/version straight from
 #   sage.yaml — nothing is hardcoded, so a version bump needs no edit here.
 #
 # USAGE
