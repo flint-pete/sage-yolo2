@@ -8,6 +8,9 @@ All notable changes to the `sage-yolo2` Sage plugin.
   `Loading yolo11x.pt on cpu` (about 2 s per frame); same results.
 
 ### Changed
+- README: pod-identity note. Launching with the patched `pluginctl-nodeinfo`
+  (wes-nodeinfo-injection Tier 1b) gives the pod `WAGGLE_NODE_*`, enabling the
+  cross-check and the node-GPS fallback.
 - ECR note: the cyberinfrastructure team fixed the ECR build for Thor (arm64,
   including CUDA bases), so current docs no longer say ECR can't build this
   image. The image just hasn't been published yet; side-load stays the verified
