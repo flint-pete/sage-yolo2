@@ -30,7 +30,7 @@ USAGE
         --name birdnet-species \
         --from-version 0.1.0 \
         --version 0.1.1 \
-        --git-url https://github.com/flint-pete/birdnet.git \
+        --git-url https://github.com/<owner>/<repo>.git \
         --token "$SAGE_TOKEN"          # or set SAGE_TOKEN env var
 
 After it prints "registered: <ns>/<name>:<ver>", re-run `sesctl submit`.
@@ -73,7 +73,7 @@ def main():
                     help="An existing registered version to clone metadata from")
     ap.add_argument("--version", required=True, help="The new version to register")
     ap.add_argument("--git-url", required=True,
-                    help="GitHub repo URL, e.g. https://github.com/flint-pete/birdnet.git")
+                    help="GitHub repo URL, e.g. https://github.com/flint-pete/sage-yolo2.git")
     ap.add_argument("--branch", default="main")
     ap.add_argument("--arch", default="linux/arm64",
                     help="Comma-separated architectures (default: linux/arm64)")
