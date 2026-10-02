@@ -383,10 +383,11 @@ one-shot pod each scheduled fire — does not re-infer the whole cache.
 - **YOLO11x** needs ~4–5 GB GPU memory at 1080p. It fits easily in the 128 GB unified
   memory on DGX Spark / Sage Thor nodes.
 - **GPU or CPU:** the model runs on CUDA when the pod can see the GPU, otherwise on the CPU
-  (same results, slower). Check the startup log line `Loading ... on cuda|cpu`. On Thor
-  nodes with no GPU device plugin and a non-NVIDIA default container runtime (H039,
-  Oct 2026), `pluginctl` pods get **CPU**. See the hub guide, Step 6c,
-  "Is it using the GPU?". On CPU, YOLO11x took about 2 s per frame on H039.
+  (same results, slower). Check the startup log line `Loading ... on cuda|cpu`. Thor
+  nodes default to NVIDIA's container runtime (fleet-wide since Oct 2026), so
+  `pluginctl` and scheduler pods get the GPU. On H039 it logs `on cuda`. If you see
+  `on cpu`, follow the hub guide, Step 6c, "Is it using the GPU?". On the CPU,
+  YOLO11x took about 2 s per frame.
 - `stream`/`snapshot`/`image-dir` modes do **not** require the cache mount (standalone /
   local-test fallbacks).
 

@@ -4,6 +4,11 @@ All notable changes to the `sage-yolo2` Sage plugin.
 
 ## Unreleased (docs only; image stays 2.1.0)
 
+### Verified
+- **Runs on the GPU on Thor nodes:** `Loading yolo11x.pt on cuda` on H039, after the
+  CI team set k3s `default-runtime: nvidia` fleet-wide. The README's GPU-or-CPU note
+  is updated. No code change: `app.py` already picks `cuda` when it's available.
+
 ### Changed
 - **Pinned dependencies** to the versions verified on H039: `ultralytics==8.4.171`,
   `pywaggle[all]==0.56.3`, `opencv-python-headless==4.11.0.86`, `pillow==11.3.0`,
