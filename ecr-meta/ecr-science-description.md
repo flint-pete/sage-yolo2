@@ -88,10 +88,10 @@ case-insensitively and exactly against the COCO name). Examples:
 
 ## Deployment note (GPU / NVIDIA base)
 
-sage-yolo2 is built `FROM nvcr.io/nvidia/pytorch` (CUDA). The ECR portal build
-cross-compiles arm64 under QEMU, which crashes on CUDA base images, so the
-working deployment path on Thor/Jetson nodes is a **native on-node build +
-k3s side-load** (see `DOCKER-BUILD.md`). In cache mode the plugin requires the
+sage-yolo2 is built `FROM nvcr.io/nvidia/pytorch` (CUDA) for arm64 Thor nodes.
+It can be built by the ECR portal or natively on the node; the verified
+development path is a **native on-node build + k3s side-load** (see
+`DOCKER-BUILD.md`). In cache mode the plugin requires the
 `/local-cache` mount from `wes-local-cache-manager` and **fails fast** if it is
 absent.
 

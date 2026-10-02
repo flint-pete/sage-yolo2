@@ -10,8 +10,7 @@ keywords: "object detection, object counting, YOLO, computer vision, machine lea
 homepage: "https://sagecontinuum.org"
 source:
     architectures:
-        - "linux/arm64"    # Thor target. ECR portal build FAILS (QEMU crash on
-        # NVIDIA CUDA base, Infra #3) — deploy via native Thor build + k3s side-load.
+        - "linux/arm64"    # Thor target (ECR can build it; dev path = native Thor build + k3s side-load)
         # - "linux/amd64"  # not targeted: plugin runs only on arm64 Thor/Jetson nodes
     url: "https://github.com/flint-pete/sage-yolo2.git"
     branch: "master"

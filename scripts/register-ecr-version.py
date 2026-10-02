@@ -13,10 +13,9 @@ version, `sesctl submit` fails with:
     [registry.sagecontinuum.org/<ns>/<name>:<ver> does not exist in ECR]
 
 The portal "Create App / add version" UI registers that catalog record for
-you (and tries to build the image). But for Thor/arm64 NVIDIA plugins the
-portal *build* crashes under QEMU — and we serve the actual image via the
-local sideload anyway (SES pods use imagePullPolicy=IfNotPresent). So all
-we actually need from ECR is the catalog *metadata* record. This script
+you (and builds the image). When you serve the image via a local sideload
+instead (SES pods use imagePullPolicy=IfNotPresent), all you need from ECR
+is the catalog *metadata* record. This script
 creates it directly via the API.
 
 It works by cloning an existing version's record (same app, any prior

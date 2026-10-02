@@ -5,6 +5,10 @@ All notable changes to the `sage-yolo2` Sage plugin.
 ## Unreleased (docs only; image stays 2.1.0)
 
 ### Changed
+- ECR note: the cyberinfrastructure team fixed the ECR build for Thor (arm64,
+  including CUDA bases), so current docs no longer say ECR can't build this
+  image. The image just hasn't been published yet; side-load stays the verified
+  dev path. The QEMU notes in older entries below are historical.
 - **Student-readiness doc pass.**
   - README: added "Where this fits", a code map, the Thor deploy command,
     crop-index semantics and the bioclip2 implication, counts vs crops, the

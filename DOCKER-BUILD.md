@@ -14,17 +14,12 @@ scheduling.
 
 ## Why the image is built on the node (side-load)
 
-The Sage ECR portal ("Register and Build") **cannot build this image yet**.
-
-- The ECR pipeline runs on x86_64 and cross-builds `linux/arm64` under QEMU.
-- The NVIDIA base image (`nvcr.io/nvidia/pytorch:25.08-py3`) crashes under QEMU
-  (`qemu: uncaught target signal 6`, exit 134). This is Sage infra issue #3,
-  open. The earlier `/proc/acpi` builder bug (#2) is fixed.
-- CPU-only plugins such as media-sampler3 do build in ECR; GPU plugins don't.
-
-So the working path is a native arm64 build **on the Thor**, imported straight
-into k3s containerd. Pods run that local image without any registry pull. The
-cost: these images are not reboot-durable in the way registry images are. See
+The Sage ECR portal ("Register and Build") can build Thor/arm64 images, including
+this CUDA-based one. But this image has not been published to the registry yet,
+so the stack builds it natively **on the Thor** and imports it straight into k3s
+containerd. Pods run that local image without any registry pull. The cost: a
+side-loaded image is not reboot-durable the way a registry image is. Publishing
+through ECR removes that cost. See
 [media-sampler3 REBOOT-RECOVERY.md](https://github.com/flint-pete/media-sampler3/blob/master/REBOOT-RECOVERY.md).
 
 ## Build and side-load (one command)
