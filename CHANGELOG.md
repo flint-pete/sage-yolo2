@@ -2,7 +2,7 @@
 
 All notable changes to the `sage-yolo2` Sage plugin.
 
-## Unreleased (docs only; image stays 2.1.0)
+## 2.1.1 — 2026-10-02
 
 ### Verified
 - **Runs on the GPU on Thor nodes:** `Loading yolo11x.pt on cuda` on H039, after the

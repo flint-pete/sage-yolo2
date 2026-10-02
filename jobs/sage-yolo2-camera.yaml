@@ -28,7 +28,7 @@ plugins:
   # PRODUCER: one camera open, frames -> /local-cache/camera/top
   - name: media-sampler3
     pluginSpec:
-      image: registry.sagecontinuum.org/beckman/media-sampler3:0.1.0
+      image: registry.sagecontinuum.org/beckman/media-sampler3:0.1.1
       args:
         - "--continuous"
         - "10"
@@ -55,7 +55,7 @@ plugins:
   # CONSUMER: reads the cache, counts birds, crops them for sage-bioclip2.
   - name: sage-yolo2
     pluginSpec:
-      image: registry.sagecontinuum.org/beckman/sage-yolo2:2.1.0
+      image: registry.sagecontinuum.org/beckman/sage-yolo2:2.1.1
       args:
         - "--source"
         - "cache"

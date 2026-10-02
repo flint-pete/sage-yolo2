@@ -82,7 +82,7 @@ sudo pluginctl-nodeinfo run --name sage-yolo2-consumer --selector zone=core \
   --resource limit.memory=16Gi,request.memory=4Gi \
   -v /media/plugin-data/local-cache:/local-cache \
   -e WAGGLE_JOB_NAME=camera -e WAGGLE_TASK_NAME=sage-yolo2 \
-  registry.sagecontinuum.org/beckman/sage-yolo2:2.1.0 -- \
+  registry.sagecontinuum.org/beckman/sage-yolo2:2.1.1 -- \
   --source cache --input /local-cache/camera/top \
   --every 5m --all-unseen --max-frames 0 \
   --model yolo11x.pt --conf-thres 0.25 --classes bird \
