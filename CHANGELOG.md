@@ -4,6 +4,9 @@ All notable changes to the `sage-yolo2` Sage plugin.
 
 ## Unreleased (docs only; image stays 2.1.0)
 
+- README: GPU-or-CPU note. On H039 `pluginctl` pods get no GPU, so the log says
+  `Loading yolo11x.pt on cpu` (about 2 s per frame); same results.
+
 ### Changed
 - ECR note: the cyberinfrastructure team fixed the ECR build for Thor (arm64,
   including CUDA bases), so current docs no longer say ECR can't build this
