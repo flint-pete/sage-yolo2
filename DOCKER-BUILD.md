@@ -52,6 +52,11 @@ scripts/deploy-sideload.sh --skip-register    # sudo docker build + import into 
 - **OpenCV fix:** it swaps the base image's `opencv-python` for
   `opencv-python-headless`, and removes stray `cv2*` files first. The leftover
   files otherwise cause `numpy.core.multiarray failed to import`.
+- **Pinned versions:** `requirements.txt` pins every direct dependency to the
+  versions that built and ran on H039 (Oct 2026), including the opencv in the
+  step above. torch, torchvision and numpy are locked to the base image's
+  versions through a pip constraints file. To upgrade, change a pin, rebuild, and
+  re-run the install guide's seeded test.
 - **Model baked in:** `yolo11x.pt` is downloaded at build time, so the pod needs
   no network at runtime.
 

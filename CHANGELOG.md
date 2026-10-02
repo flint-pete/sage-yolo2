@@ -4,6 +4,15 @@ All notable changes to the `sage-yolo2` Sage plugin.
 
 ## Unreleased (docs only; image stays 2.1.0)
 
+### Changed
+- **Pinned dependencies** to the versions verified on H039: `ultralytics==8.4.171`,
+  `pywaggle[all]==0.56.3`, `opencv-python-headless==4.11.0.86`, `pillow==11.3.0`,
+  `piexif==1.1.3`. torch/torchvision/numpy stay locked to the NVIDIA base image.
+- **Dockerfile:** the opencv reinstall used an unquoted
+  `opencv-python-headless>=4.8.0`. The shell treated it as a redirect, so the
+  newest opencv was installed. It's now quoted and pinned.
+- Verified: rebuilt on H039, seeded test passed, and runs with no network.
+
 - README: GPU-or-CPU note. On H039 `pluginctl` pods get no GPU, so the log says
   `Loading yolo11x.pt on cpu` (about 2 s per frame); same results.
 
