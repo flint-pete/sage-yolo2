@@ -2,7 +2,7 @@
 
 The canonical, verified end-to-end recipe is the media-sampler3 install guide:
 [INSTALLING-MEDIA-SAMPLER3.md](https://github.com/flint-pete/media-sampler3/blob/master/INSTALLING-MEDIA-SAMPLER3.md).
-Step 5 builds this image, and Steps 6c and 6f run and test it. This page explains
+Step 5 builds this image, and Steps 6b–6f run and test it. This page explains
 the build itself and the GPU constraints behind those steps.
 
 The previous long-form version of this page is kept in
@@ -57,7 +57,7 @@ scripts/deploy-sideload.sh --skip-register    # sudo docker build + import into 
 
 ## Running it on a Thor
 
-Use `sudo pluginctl run` with the flags in install guide Step 6c. Three of them
+Use `sudo pluginctl-nodeinfo run` with the flags in install guide Step 6c. Three of them
 are required:
 
 | Flag | Why |
@@ -94,4 +94,4 @@ operability (reboot survival, crash isolation), not about resources.
 | `numpy.core.multiarray failed to import` | The OpenCV fix didn't run; rebuild without the build cache. |
 | `permission denied` from docker | Use `sudo`; Thor's docker socket is root-only (the script already does). |
 | Cache mode exits immediately with a "cache missing" error | `/local-cache` isn't mounted or `--input` is wrong. Check the `-v` flag and that the producer is writing to that directory. |
-| Runs, but no crops and no `env.count.bird` | Probably no birds in the frames. Use the seeded-bird test (install guide Step 6f). |
+| Runs, but no crops and no `env.count.bird` | Probably no birds in the frames. Use the seeded-bird test (install guide Steps 6b–6f). |
