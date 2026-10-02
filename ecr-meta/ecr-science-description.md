@@ -101,7 +101,7 @@ absent.
 pure-logic unit tests for the consumer, frame selection, seen-store dedup, and
 node-identity resolution, plus an integration test that drives the cache wake
 loop end-to-end with stubbed GPU libraries. The real-model check is the
-deterministic cascade test in the media-sampler3 install guide (Step 6f), which
+deterministic cascade test in the media-sampler3 install guide (Steps 6b–6g), which
 seeds `tests/test-images/bird-cardinal-sample.jpg` on a node.
 
 ## Example use cases

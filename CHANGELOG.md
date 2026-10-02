@@ -8,6 +8,8 @@ All notable changes to the `sage-yolo2` Sage plugin.
   `Loading yolo11x.pt on cpu` (about 2 s per frame); same results.
 
 ### Changed
+- README: sage-birdnet2 listed as the third (audio) test consumer; step references
+  follow the install guide's re-numbering.
 - README: pod-identity note. Launching with the patched `pluginctl-nodeinfo`
   (wes-nodeinfo-injection Tier 1b) gives the pod `WAGGLE_NODE_*`, enabling the
   cross-check and the node-GPS fallback.

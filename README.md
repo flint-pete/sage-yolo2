@@ -10,8 +10,9 @@ open, one decode, many consumers — that is the architectural win.
 
 ## Where this fits
 
-sage-yolo2 is one of the two **test consumers** in the media-sampler3 stack. It's
-also the example to copy when you write a new cache consumer.
+sage-yolo2 is one of the three **test consumers** in the media-sampler3 stack
+(with sage-bioclip2 and the audio consumer sage-birdnet2). It's also the example
+to copy when you write a new cache consumer.
 
 ```
 camera ─▶ media-sampler3 ─▶ /local-cache/camera/top/ ─▶ sage-yolo2 ─▶ env.count.* ─▶ Beehive
@@ -24,6 +25,7 @@ wes-local-cache-manager bounds /local-cache · wes-nodeinfo-injection + pywaggle
 |---|---|
 | [media-sampler3](https://github.com/flint-pete/media-sampler3) | The producer whose frames this reads. Also the hub repo: [install guide](https://github.com/flint-pete/media-sampler3/blob/master/INSTALLING-MEDIA-SAMPLER3.md), [REBOOT-RECOVERY.md](https://github.com/flint-pete/media-sampler3/blob/master/REBOOT-RECOVERY.md), [HOW-IT-WORKS.md](https://github.com/flint-pete/media-sampler3/blob/master/docs/HOW-IT-WORKS.md) |
 | [sage-bioclip2](https://github.com/flint-pete/sage-bioclip2) | Reads the crops this writes and classifies species |
+| [sage-birdnet2](https://github.com/flint-pete/sage-birdnet2) | The audio consumer; reuses this repo's consumer modules plus a sidecar reader |
 | [wes-local-cache-manager](https://github.com/flint-pete/wes-local-cache-manager) | Provides and bounds `/local-cache`; never evicts `.state/`, where the seen-store lives |
 | [pywaggle2-nodeinfo](https://github.com/flint-pete/pywaggle2-nodeinfo) | Copied (vendored) here as `node_info.py` for pod identity |
 
@@ -359,7 +361,7 @@ one-shot pod each scheduled fire — does not re-infer the whole cache.
   Pillow, piexif, and numpy, so it runs out-of-the-box on a clean checkout. Clean up with
   `make clean`.
 - **Real-model check (GPU, on a node):** the deterministic cascade test in the
-  install guide (Steps 6b–6f). It seeds `tests/test-images/bird-cardinal-sample.jpg`, a
+  install guide (Steps 6b–6g). It seeds `tests/test-images/bird-cardinal-sample.jpg`, a
   public-domain Northern Cardinal confirmed to detect as `bird`, into the cache.
   It then checks for `env.count.bird`, the crop, and bioclip2's species result.
   The other `tests/test-images/*` files are camera-sized scenes with no guaranteed

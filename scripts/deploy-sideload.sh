@@ -11,8 +11,8 @@
 #   imagePullPolicy=IfNotPresent, so a locally-imported image under the exact
 #   registry-qualified tag is used without any registry pull.
 #
-#   This script is IDENTICAL in sage-yolo2 and sage-bioclip2 (sage-birdnet2 will
-#   share it too) — change them together. It reads name/namespace/version straight from
+#   This script is IDENTICAL in sage-yolo2, sage-bioclip2 and sage-birdnet2 —
+#   change all three together. It reads name/namespace/version straight from
 #   sage.yaml — nothing is hardcoded, so a version bump needs no edit here.
 #
 # USAGE
